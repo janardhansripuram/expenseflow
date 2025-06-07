@@ -95,6 +95,7 @@ export default function ExpensesPage() {
 
   const fetchInitialData = useCallback(async () => {
     if (user) {
+      console.log("[ExpensesPage.fetchInitialData] Fetching data for user:", user.uid);
       setIsLoading(true);
       try {
         const [userExpenses, fetchedGroups] = await Promise.all([
@@ -102,6 +103,7 @@ export default function ExpensesPage() {
           getGroupsForUser(user.uid)
         ]);
         
+        console.log("[ExpensesPage.fetchInitialData] Fetched expenses:", userExpenses);
         setAllExpenses(userExpenses);
         setUserGroups(fetchedGroups || []);
 
@@ -111,7 +113,7 @@ export default function ExpensesPage() {
         setUniqueCurrencies(currencies);
         
       } catch (error: any) {
-        console.error("Failed to fetch initial data for expenses page:", error);
+        console.error("[ExpensesPage.fetchInitialData] Failed to fetch initial data:", error);
         let description = "Could not load expenses or groups. Please try again.";
         if (error.code === 'permission-denied') {
           description = "You don't have permission to access this data. Please check Firestore rules.";
@@ -123,12 +125,13 @@ export default function ExpensesPage() {
           title: "Error Loading Data",
           description: description,
         });
-        setAllExpenses([]); // Ensure it's empty on error
-        setUserGroups([]); // Ensure it's empty on error
+        setAllExpenses([]); 
+        setUserGroups([]); 
       } finally {
         setIsLoading(false);
       }
     } else {
+      console.log("[ExpensesPage.fetchInitialData] No user, clearing data.");
       setAllExpenses([]);
       setUserGroups([]);
       setUniqueCategories([]);
@@ -208,7 +211,8 @@ export default function ExpensesPage() {
 
       return currentSort.sortOrder === 'asc' ? comparison : comparison * -1;
     });
-
+    console.log("[ExpensesPage.render] allExpenses length:", allExpenses.length);
+    console.log("[ExpensesPage.render] filteredAndSortedExpenses length:", processedExpenses.length);
     return processedExpenses;
   }, [allExpenses, currentFilters, currentSort]);
 
@@ -295,7 +299,7 @@ export default function ExpensesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Any Currency</SelectItem>
-                      {uniqueCurrencies.map(curr => <SelectItem key={curr} value={curr}>{curr} - {SUPPORTED_CURRENCIES.find(c=>c.code === curr)?.name || ''}</SelectItem>)}
+                      {uniqueCurrencies.map(curr => <SelectItem key={curr} value={curr}>{curr} - {SUPPORTED_CURRENCIES.find(c=>c.code === curr)?.name || ''} ({SUPPORTED_CURRENCIES.find(c => c.code === curr)?.symbol})</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

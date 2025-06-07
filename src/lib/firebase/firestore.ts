@@ -60,11 +60,12 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
   try {
     if (!userId) throw new Error("User ID is required to add an expense.");
     const tagsArray = expenseData.tags ? expenseData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '') : [];
+    
     const expenseDoc: any = {
       userId,
       description: expenseData.description,
       amount: parseFloat(expenseData.amount),
-      currency: expenseData.currency || 'USD',
+      currency: expenseData.currency, // Currency is required in ExpenseFormData
       category: expenseData.category,
       date: Timestamp.fromDate(parseISO(expenseData.date)),
       notes: expenseData.notes || '',
@@ -84,7 +85,10 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
       expenseDoc.groupName = null;
     }
 
+    console.log("[firestore.addExpense] Saving expenseDoc:", JSON.stringify(expenseDoc, null, 2));
     const docRef = await addDoc(collection(db, EXPENSES_COLLECTION), expenseDoc);
+    console.log("[firestore.addExpense] Document written with ID: ", docRef.id);
+
 
     if (expenseData.groupId && actorProfile) {
       await logGroupActivity(expenseData.groupId, {
@@ -98,7 +102,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
     }
     return docRef.id;
   } catch (error) {
-    console.error("Error adding document: ", error);
+    console.error("[firestore.addExpense] Error adding document: ", error);
     throw error;
   }
 }
@@ -108,17 +112,16 @@ function mapExpenseDocumentToExpenseObject(docSnap: any): Expense | null {
   try {
     const data = docSnap.data();
     if (!data) {
-      console.error(`Document ${docId} has no data.`);
+      console.error(`[firestore.mapExpense] Document ${docId} has no data.`);
       return null;
     }
 
-    // Validate essential timestamp fields
     if (!data.date || typeof data.date.toDate !== 'function') {
-      console.error(`Document ${docId} has invalid or missing 'date' field:`, data.date);
+      console.error(`[firestore.mapExpense] Document ${docId} has invalid or missing 'date' field:`, data.date);
       return null;
     }
     if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
-      console.error(`Document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
+      console.error(`[firestore.mapExpense] Document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
       return null;
     }
 
@@ -143,26 +146,35 @@ function mapExpenseDocumentToExpenseObject(docSnap: any): Expense | null {
       tags: Array.isArray(data.tags) ? data.tags : [],
     };
   } catch (error) {
-    console.error(`Error mapping expense document ${docId}:`, error, docSnap.data());
+    console.error(`[firestore.mapExpense] Error mapping expense document ${docId}:`, error, docSnap.data());
     return null;
   }
 }
 
 export async function getExpensesByUser(userId: string): Promise<Expense[]> {
   try {
-    if (!userId) return [];
+    console.log("[firestore.getExpensesByUser] Fetching expenses for userId:", userId);
+    if (!userId) {
+      console.log("[firestore.getExpensesByUser] No userId provided, returning empty array.");
+      return [];
+    }
     const q = query(
       collection(db, EXPENSES_COLLECTION),
       where('userId', '==', userId),
       orderBy('date', 'desc')
     );
     const querySnapshot = await getDocs(q);
+    console.log(`[firestore.getExpensesByUser] Found ${querySnapshot.docs.length} documents for userId ${userId}.`);
+    if (querySnapshot.docs.length > 0) {
+        console.log("[firestore.getExpensesByUser] Raw data of first document:", JSON.stringify(querySnapshot.docs[0].data(), null, 2));
+    }
+
     const expenses = querySnapshot.docs
       .map(mapExpenseDocumentToExpenseObject)
-      .filter(expense => expense !== null) as Expense[]; // Filter out nulls from failed mappings
+      .filter(expense => expense !== null) as Expense[]; 
     return expenses;
   } catch (error) {
-    console.error("Error getting documents: ", error);
+    console.error("[firestore.getExpensesByUser] Error getting documents: ", error);
     throw error;
   }
 }
@@ -182,7 +194,7 @@ export async function getRecentExpensesByUser(userId: string, count: number = 5)
       .filter(expense => expense !== null) as Expense[];
     return expenses;
   } catch (error) {
-    console.error("Error getting recent documents: ", error);
+    console.error("[firestore.getRecentExpensesByUser] Error getting recent documents: ", error);
     throw error;
   }
 }
@@ -194,11 +206,11 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
     if (docSnap.exists()) {
       return mapExpenseDocumentToExpenseObject(docSnap);
     } else {
-      console.log("No such document!");
+      console.log("[firestore.getExpenseById] No such document!");
       return null;
     }
   } catch (error) {
-    console.error("Error getting document by ID: ", error);
+    console.error("[firestore.getExpenseById] Error getting document by ID: ", error);
     throw error;
   }
 }
@@ -242,7 +254,7 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
         await updateDoc(docRef, updateData);
     }
   } catch (error) {
-    console.error("Error updating document: ", error);
+    console.error("[firestore.updateExpense] Error updating document: ", error);
     throw error;
   }
 }
@@ -253,7 +265,7 @@ export async function deleteExpense(expenseId: string): Promise<void> {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
     await deleteDoc(docRef);
   } catch (error) {
-    console.error("Error deleting document: ", error);
+    console.error("[firestore.deleteExpense] Error deleting document: ", error);
     throw error;
   }
 }
@@ -272,7 +284,7 @@ export async function getExpensesByGroupId(groupId: string): Promise<Expense[]> 
       .filter(expense => expense !== null) as Expense[];
     return expenses;
   } catch (error) {
-    console.error("Error getting expenses by group ID: ", error);
+    console.error("[firestore.getExpensesByGroupId] Error getting expenses by group ID: ", error);
     throw error;
   }
 }
@@ -294,7 +306,7 @@ export async function addIncome(userId: string, incomeData: IncomeFormData): Pro
     const docRef = await addDoc(collection(db, INCOME_COLLECTION), incomeDoc);
     return docRef.id;
   } catch (error) {
-    console.error("Error adding income: ", error);
+    console.error("[firestore.addIncome] Error adding income: ", error);
     throw error;
   }
 }
@@ -304,20 +316,20 @@ function mapIncomeDocumentToIncomeObject(docSnap: any): Income | null {
   try {
     const data = docSnap.data();
     if (!data) {
-      console.error(`Income document ${docId} has no data.`);
+      console.error(`[firestore.mapIncome] Income document ${docId} has no data.`);
       return null;
     }
 
     if (!data.date || typeof data.date.toDate !== 'function') {
-      console.error(`Income document ${docId} has invalid or missing 'date' field:`, data.date);
+      console.error(`[firestore.mapIncome] Income document ${docId} has invalid or missing 'date' field:`, data.date);
       return null;
     }
     if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
-      console.error(`Income document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
+      console.error(`[firestore.mapIncome] Income document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
       return null;
     }
      if (data.updatedAt && typeof data.updatedAt.toDate !== 'function') {
-      console.warn(`Income document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
+      console.warn(`[firestore.mapIncome] Income document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
       // Continue mapping, but updatedAt will be undefined
     }
 
@@ -332,10 +344,10 @@ function mapIncomeDocumentToIncomeObject(docSnap: any): Income | null {
       createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
                  ? (data.updatedAt as Timestamp).toDate().toISOString() 
-                 : (data.createdAt as Timestamp).toDate().toISOString(), // Fallback to createdAt if updatedAt is invalid/missing
+                 : (data.createdAt as Timestamp).toDate().toISOString(), 
     };
   } catch (error) {
-     console.error(`Error mapping income document ${docId}:`, error, docSnap.data());
+     console.error(`[firestore.mapIncome] Error mapping income document ${docId}:`, error, docSnap.data());
     return null;
   }
 }
@@ -353,7 +365,7 @@ export async function getIncomeByUser(userId: string): Promise<Income[]> {
       .map(mapIncomeDocumentToIncomeObject)
       .filter(income => income !== null) as Income[];
   } catch (error) {
-    console.error("Error getting income: ", error);
+    console.error("[firestore.getIncomeByUser] Error getting income: ", error);
     throw error;
   }
 }
@@ -367,7 +379,7 @@ export async function getIncomeById(incomeId: string): Promise<Income | null> {
     }
     return null;
   } catch (error) {
-    console.error("Error getting income by ID: ", error);
+    console.error("[firestore.getIncomeById] Error getting income by ID: ", error);
     throw error;
   }
 }
@@ -387,7 +399,7 @@ export async function updateIncome(incomeId: string, incomeData: Partial<IncomeF
       await updateDoc(docRef, updateData);
     }
   } catch (error) {
-    console.error("Error updating income: ", error);
+    console.error("[firestore.updateIncome] Error updating income: ", error);
     throw error;
   }
 }
@@ -397,7 +409,7 @@ export async function deleteIncome(incomeId: string): Promise<void> {
     const docRef = doc(db, INCOME_COLLECTION, incomeId);
     await deleteDoc(docRef);
   } catch (error) {
-    console.error("Error deleting income: ", error);
+    console.error("[firestore.deleteIncome] Error deleting income: ", error);
     throw error;
   }
 }
@@ -415,7 +427,7 @@ export async function createUserProfile(userId: string, email: string, displayNa
       createdAt: Timestamp.now(),
     });
   } catch (error) {
-    console.error("Error creating user profile: ", error);
+    console.error("[firestore.createUserProfile] Error creating user profile: ", error);
     throw error;
   }
 }
@@ -436,7 +448,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     }
     return null;
   } catch (error) {
-    console.error("Error getting user profile: ", error);
+    console.error("[firestore.getUserProfile] Error getting user profile: ", error);
     throw error;
   }
 }
@@ -457,7 +469,7 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
     }
     return null;
   } catch (error) {
-    console.error("Error getting user by email: ", error);
+    console.error("[firestore.getUserByEmail] Error getting user by email: ", error);
     throw error;
   }
 }
@@ -475,7 +487,7 @@ export async function updateUserProfile(userId: string, data: Partial<Pick<UserP
         await updateDoc(userRef, { ...allowedUpdates, updatedAt: Timestamp.now() });
     }
   } catch (error) {
-    console.error("Error updating user profile: ", error);
+    console.error("[firestore.updateUserProfile] Error updating user profile: ", error);
     throw error;
   }
 }
@@ -527,7 +539,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
     });
     return { success: true, message: "Friend request sent successfully." };
   } catch (error) {
-    console.error("Error sending friend request: ", error);
+    console.error("[firestore.sendFriendRequest] Error sending friend request: ", error);
     const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
     return { success: false, message: `Failed to send friend request: ${errorMessage}` };
   }
@@ -551,7 +563,7 @@ export async function getIncomingFriendRequests(userId: string): Promise<FriendR
         } as FriendRequest
     });
   } catch (error) {
-    console.error("Error getting incoming friend requests: ", error);
+    console.error("[firestore.getIncomingFriendRequests] Error getting incoming friend requests: ", error);
     throw error;
   }
 }
@@ -597,7 +609,7 @@ export async function rejectFriendRequest(requestId: string): Promise<void> {
     const requestRef = doc(db, FRIEND_REQUESTS_COLLECTION, requestId);
     await deleteDoc(requestRef);
   } catch (error) {
-    console.error("Error rejecting friend request: ", error);
+    console.error("[firestore.rejectFriendRequest] Error rejecting friend request: ", error);
     throw error;
   }
 }
@@ -617,7 +629,7 @@ export async function getFriends(userId: string): Promise<Friend[]> {
         } as Friend
     });
   } catch (error) {
-    console.error("Error getting friends: ", error);
+    console.error("[firestore.getFriends] Error getting friends: ", error);
     throw error;
   }
 }
@@ -633,7 +645,7 @@ export async function removeFriend(currentUserId: string, friendUserId: string):
   try {
     await batch.commit();
   } catch (error) {
-    console.error("Error removing friend: ", error);
+    console.error("[firestore.removeFriend] Error removing friend: ", error);
     throw error;
   }
 }
@@ -687,7 +699,7 @@ export async function createGroup(
     }
     return groupRef.id;
   } catch (error) {
-    console.error("Error creating group: ", error);
+    console.error("[firestore.createGroup] Error creating group: ", error);
     throw error;
   }
 }
@@ -710,7 +722,7 @@ export async function getGroupsForUser(userId: string): Promise<Group[]> {
         } as Group
     });
   } catch (error) {
-    console.error("Error getting groups for user: ", error);
+    console.error("[firestore.getGroupsForUser] Error getting groups for user: ", error);
     throw error;
   }
 }
@@ -729,7 +741,7 @@ export async function getGroupDetails(groupId: string): Promise<Group | null> {
     }
     return null;
   } catch (error) {
-    console.error("Error getting group details: ", error);
+    console.error("[firestore.getGroupDetails] Error getting group details: ", error);
     throw error;
   }
 }
@@ -769,7 +781,7 @@ export async function updateGroupDetails(
     }
     await batch.commit();
   } catch (error) {
-    console.error("Error updating group details:", error);
+    console.error("[firestore.updateGroupDetails] Error updating group details:", error);
     throw error;
   }
 }
@@ -822,7 +834,7 @@ export async function addMembersToGroup(
       }
     });
   } catch (error) {
-    console.error("Error adding members to group:", error);
+    console.error("[firestore.addMembersToGroup] Error adding members to group:", error);
     throw error;
   }
 }
@@ -844,7 +856,7 @@ export async function removeMemberFromGroup(
       const memberDetailToRemove = groupData.memberDetails.find(m => m.uid === memberIdToRemove);
 
       if (!memberDetailToRemove && groupData.memberIds.includes(memberIdToRemove)) {
-         console.warn(`Member detail for UID ${memberIdToRemove} not found in group ${groupId}, but ID was in memberIds. Proceeding with ID removal.`);
+         console.warn(`[firestore.removeMemberFromGroup] Member detail for UID ${memberIdToRemove} not found in group ${groupId}, but ID was in memberIds. Proceeding with ID removal.`);
       }
 
       let isDeletingGroup = false;
@@ -886,7 +898,7 @@ export async function removeMemberFromGroup(
       });
     });
   } catch (error) {
-    console.error("Error removing member from group:", error);
+    console.error("[firestore.removeMemberFromGroup] Error removing member from group:", error);
     throw error;
   }
 }
@@ -977,7 +989,7 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
     }
     return docRef.id;
   } catch (error) {
-    console.error("Error creating split expense: ", error);
+    console.error("[firestore.createSplitExpense] Error creating split expense: ", error);
     throw error;
   }
 }
@@ -996,13 +1008,13 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
         return {
             id: docSnap.id,
             ...data,
-            currency: data.currency || 'USD', // Default for older splits
+            currency: data.currency || 'USD', 
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
             updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
     });
   } catch (error) {
-    console.error("Error getting split expenses for user: ", error);
+    console.error("[firestore.getSplitExpensesForUser] Error getting split expenses for user: ", error);
     throw error;
   }
 }
@@ -1016,14 +1028,14 @@ export async function getSplitExpenseById(splitExpenseId: string): Promise<Split
       return {
         id: docSnap.id,
         ...data,
-        currency: data.currency || 'USD', // Default for older splits
+        currency: data.currency || 'USD', 
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
       } as SplitExpense;
     }
     return null;
   } catch (error) {
-    console.error("Error getting split expense by ID: ", error);
+    console.error("[firestore.getSplitExpenseById] Error getting split expense by ID: ", error);
     throw error;
   }
 }
@@ -1042,13 +1054,13 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
         return {
             id: docSnap.id,
             ...data,
-            currency: data.currency || 'USD', // Default for older splits
+            currency: data.currency || 'USD', 
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
             updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
     });
   } catch (error) {
-    console.error("Error getting split expenses by group ID: ", error);
+    console.error("[firestore.getSplitExpensesByGroupId] Error getting split expenses by group ID: ", error);
     throw error;
   }
 }
@@ -1096,7 +1108,7 @@ export async function updateSplitParticipantSettlement(
       }
     });
   } catch (error) {
-    console.error("Error updating participant settlement status: ", error);
+    console.error("[firestore.updateSplitParticipantSettlement] Error updating participant settlement status: ", error);
     throw error;
   }
 }
@@ -1106,7 +1118,7 @@ export async function deleteSplitExpense(splitExpenseId: string): Promise<void> 
     const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
     await deleteDoc(splitExpenseRef);
   } catch (error) {
-    console.error("Error deleting split expense: ", error);
+    console.error("[firestore.deleteSplitExpense] Error deleting split expense: ", error);
     throw error;
   }
 }
@@ -1173,7 +1185,7 @@ export async function updateSplitExpense(
     await updateDoc(splitExpenseRef, updatePayload as { [key: string]: any });
 
   } catch (error) {
-    console.error("Error updating split expense: ", error);
+    console.error("[firestore.updateSplitExpense] Error updating split expense: ", error);
     throw error;
   }
 }
@@ -1196,7 +1208,7 @@ export async function addReminder(userId: string, reminderData: ReminderFormData
     });
     return docRef.id;
   } catch (error) {
-    console.error("Error adding reminder: ", error);
+    console.error("[firestore.addReminder] Error adding reminder: ", error);
     throw error;
   }
 }
@@ -1227,7 +1239,7 @@ export async function getRemindersByUser(userId: string): Promise<Reminder[]> {
     });
     return reminders;
   } catch (error) {
-    console.error("Error getting reminders: ", error);
+    console.error("[firestore.getRemindersByUser] Error getting reminders: ", error);
     throw error;
   }
 }
@@ -1243,7 +1255,7 @@ export async function updateReminder(reminderId: string, data: ReminderFormData)
       updatedAt: Timestamp.now(),
     });
   } catch (error) {
-    console.error("Error updating reminder: ", error);
+    console.error("[firestore.updateReminder] Error updating reminder: ", error);
     throw error;
   }
 }
@@ -1256,7 +1268,7 @@ export async function updateReminderCompletion(reminderId: string, isCompleted: 
       updatedAt: Timestamp.now(),
     });
   } catch (error) {
-    console.error("Error updating reminder completion status: ", error);
+    console.error("[firestore.updateReminderCompletion] Error updating reminder completion status: ", error);
     throw error;
   }
 }
@@ -1266,7 +1278,7 @@ export async function deleteReminder(reminderId: string): Promise<void> {
     const reminderRef = doc(db, REMINDERS_COLLECTION, reminderId);
     await deleteDoc(reminderRef);
   } catch (error) {
-    console.error("Error deleting reminder: ", error);
+    console.error("[firestore.deleteReminder] Error deleting reminder: ", error);
     throw error;
   }
 }
@@ -1302,7 +1314,7 @@ export async function addBudget(userId: string, budgetData: BudgetFormData): Pro
     const docRef = await addDoc(collection(db, BUDGETS_COLLECTION), newBudget);
     return docRef.id;
   } catch (error) {
-    console.error("Error adding budget: ", error);
+    console.error("[firestore.addBudget] Error adding budget: ", error);
     throw error;
   }
 }
@@ -1312,15 +1324,15 @@ function mapBudgetDocumentToBudgetObject(docSnap: any): Budget | null {
     try {
         const data = docSnap.data();
         if (!data) {
-            console.error(`Budget document ${docId} has no data.`);
+            console.error(`[firestore.mapBudget] Budget document ${docId} has no data.`);
             return null;
         }
         if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
-            console.error(`Budget document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
+            console.error(`[firestore.mapBudget] Budget document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
             return null;
         }
          if (data.updatedAt && typeof data.updatedAt.toDate !== 'function') {
-            console.warn(`Budget document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
+            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
         }
 
         return {
@@ -1339,7 +1351,7 @@ function mapBudgetDocumentToBudgetObject(docSnap: any): Budget | null {
                         : (data.createdAt as Timestamp).toDate().toISOString(),
         };
     } catch (error) {
-        console.error(`Error mapping budget document ${docId}:`, error, docSnap.data());
+        console.error(`[firestore.mapBudget] Error mapping budget document ${docId}:`, error, docSnap.data());
         return null;
     }
 }
@@ -1357,7 +1369,7 @@ export async function getBudgetsByUser(userId: string): Promise<Budget[]> {
         .map(mapBudgetDocumentToBudgetObject)
         .filter(budget => budget !== null) as Budget[];
   } catch (error) {
-    console.error("Error getting budgets by user: ", error);
+    console.error("[firestore.getBudgetsByUser] Error getting budgets by user: ", error);
     throw error;
   }
 }
@@ -1385,7 +1397,7 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
         await updateDoc(budgetRef, updatePayload);
     }
   } catch (error) {
-    console.error("Error updating budget: ", error);
+    console.error("[firestore.updateBudget] Error updating budget: ", error);
     throw error;
   }
 }
@@ -1395,7 +1407,7 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     const budgetRef = doc(db, BUDGETS_COLLECTION, budgetId);
     await deleteDoc(budgetRef);
   } catch (error) {
-    console.error("Error deleting budget: ", error);
+    console.error("[firestore.deleteBudget] Error deleting budget: ", error);
     throw error;
   }
 }
