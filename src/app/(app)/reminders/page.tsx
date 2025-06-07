@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -42,12 +42,12 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { ListChecks, PlusCircle, Trash2, CalendarIcon, Edit, Loader2, BellRing, CheckCircle2 } from "lucide-react";
+import { ListChecks, PlusCircle, Trash2, CalendarIcon, Edit, Loader2, BellRing, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { addReminder, getRemindersByUser, updateReminderCompletion, deleteReminder, updateReminder } from "@/lib/firebase/firestore";
 import type { Reminder, ReminderFormData, RecurrenceType } from "@/lib/types";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isToday, isPast, compareAsc, compareDesc, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 
 const reminderSchema = z.object({
@@ -145,13 +145,11 @@ export default function RemindersPage() {
 
   const openAddReminderDialog = () => {
     setEditingReminder(null);
-    // form.reset() is handled by useEffect watching isReminderDialogOpen and editingReminder
     setIsReminderDialogOpen(true);
   };
 
   const openEditReminderDialog = (reminder: Reminder) => {
     setEditingReminder(reminder);
-     // form.reset() is handled by useEffect watching isReminderDialogOpen and editingReminder
     setIsReminderDialogOpen(true);
   };
 
@@ -191,6 +189,53 @@ export default function RemindersPage() {
     { value: "yearly", label: "Yearly" },
   ];
 
+  const sortedReminders = useMemo(() => {
+    const today = startOfDay(new Date());
+    return [...reminders].sort((a, b) => {
+      const aDueDate = parseISO(a.dueDate);
+      const bDueDate = parseISO(b.dueDate);
+
+      // Sort by completion status first (incomplete before complete)
+      if (a.isCompleted !== b.isCompleted) {
+        return a.isCompleted ? 1 : -1;
+      }
+
+      // For incomplete reminders:
+      if (!a.isCompleted) {
+        const aIsOverdue = isPast(aDueDate) && !isToday(aDueDate);
+        const bIsOverdue = isPast(bDueDate) && !isToday(bDueDate);
+        const aIsDueToday = isToday(aDueDate);
+        const bIsDueToday = isToday(bDueDate);
+
+        if (aIsOverdue !== bIsOverdue) return aIsOverdue ? -1 : 1; // Overdue first
+        if (aIsOverdue && bIsOverdue) return compareAsc(aDueDate, bDueDate); // Sort overdue by date
+
+        if (aIsDueToday !== bIsDueToday) return aIsDueToday ? -1 : 1; // Due today after overdue
+        // (No specific sort for due today if multiple, could add title sort)
+
+        return compareAsc(aDueDate, bDueDate); // Then upcoming by date
+      }
+
+      // For completed reminders (sort by due date, most recent first)
+      return compareDesc(aDueDate, bDueDate);
+    });
+  }, [reminders]);
+  
+  const getReminderStatus = (reminder: Reminder): { status: 'overdue' | 'dueToday' | 'upcoming' | 'completed', cardClass: string } => {
+    if (reminder.isCompleted) {
+      return { status: 'completed', cardClass: "bg-muted/50 opacity-70 border-muted" };
+    }
+    const dueDate = parseISO(reminder.dueDate);
+    if (isPast(dueDate) && !isToday(dueDate)) {
+      return { status: 'overdue', cardClass: "border-destructive/70 bg-destructive/5 hover:border-destructive" };
+    }
+    if (isToday(dueDate)) {
+      return { status: 'dueToday', cardClass: "border-amber-500/70 bg-amber-500/5 hover:border-amber-500" };
+    }
+    return { status: 'upcoming', cardClass: "border-border" };
+  };
+
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -205,7 +250,7 @@ export default function RemindersPage() {
 
       <Dialog open={isReminderDialogOpen} onOpenChange={(isOpen) => {
           setIsReminderDialogOpen(isOpen);
-          if (!isOpen) setEditingReminder(null); // Clear editing state when dialog closes
+          if (!isOpen) setEditingReminder(null); 
       }}>
         <DialogContent className="sm:max-w-lg">
         <DialogHeader>
@@ -259,7 +304,7 @@ export default function RemindersPage() {
                         mode="single"
                         selected={field.value ? parseISO(field.value) : undefined}
                         onSelect={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                        disabled={(date) => date < new Date(new Date().setDate(new Date().getDate()-1)) } // Disable past dates
+                        disabled={(date) => date < startOfDay(new Date()) } // Disable past dates
                         initialFocus
                         />
                     </PopoverContent>
@@ -332,7 +377,7 @@ export default function RemindersPage() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="ml-2 text-muted-foreground">Loading reminders...</p>
             </div>
-          ) : reminders.length === 0 ? (
+          ) : sortedReminders.length === 0 ? (
             <div className="text-center py-10">
               <CheckCircle2 className="mx-auto h-12 w-12 text-muted-foreground" />
               <p className="mt-4 text-lg text-muted-foreground">No reminders set yet.</p>
@@ -343,69 +388,76 @@ export default function RemindersPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {reminders.map((reminder) => (
-                <Card key={reminder.id} className={cn("shadow-sm transition-all", reminder.isCompleted && "bg-muted/50 opacity-70")}>
-                  <CardHeader className="pb-3">
-                     <div className="flex items-start justify-between">
-                        <CardTitle className={cn("text-lg", reminder.isCompleted && "line-through text-muted-foreground")}>
-                          {reminder.title}
-                        </CardTitle>
-                        <Checkbox
-                            checked={reminder.isCompleted}
-                            onCheckedChange={() => reminder.id && handleToggleComplete(reminder.id, reminder.isCompleted)}
-                            disabled={isProcessing === reminder.id}
-                            aria-label={`Mark reminder "${reminder.title}" as ${reminder.isCompleted ? 'pending' : 'complete'}`}
-                            className="ml-auto h-5 w-5"
-                        />
-                     </div>
-                    <CardDescription>
-                      Due: {format(parseISO(reminder.dueDate), "PPP")}
-                      {reminder.recurrence !== "none" && (
-                        <span className="ml-2 capitalize text-xs p-1 bg-secondary text-secondary-foreground rounded-sm">
-                          {reminder.recurrence}
-                        </span>
-                      )}
-                    </CardDescription>
-                  </CardHeader>
-                  {reminder.notes && (
-                    <CardContent className="py-2">
-                      <p className="text-sm text-muted-foreground">{reminder.notes}</p>
-                    </CardContent>
-                  )}
-                  <CardFooter className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" size="sm" onClick={() => reminder.id && openEditReminderDialog(reminder)} disabled={isProcessing === reminder.id}>
-                       <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit
-                    </Button>
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="text-destructive hover:text-destructive/80" 
+              {sortedReminders.map((reminder) => {
+                const { status, cardClass } = getReminderStatus(reminder);
+                return (
+                    <Card key={reminder.id} className={cn("shadow-sm transition-all", cardClass)}>
+                    <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                            <div className="flex-grow">
+                                <CardTitle className={cn("text-lg", reminder.isCompleted && "line-through text-muted-foreground")}>
+                                    {reminder.title}
+                                </CardTitle>
+                                <CardDescription>
+                                Due: {format(parseISO(reminder.dueDate), "PPP")}
+                                {status === 'overdue' && !reminder.isCompleted && <span className="ml-2 text-xs font-semibold text-destructive">(Overdue)</span>}
+                                {status === 'dueToday' && !reminder.isCompleted && <span className="ml-2 text-xs font-semibold text-amber-600">(Due Today)</span>}
+                                {reminder.recurrence !== "none" && (
+                                    <span className="ml-2 capitalize text-xs p-1 bg-secondary text-secondary-foreground rounded-sm">
+                                    {reminder.recurrence}
+                                    </span>
+                                )}
+                                </CardDescription>
+                            </div>
+                            <Checkbox
+                                checked={reminder.isCompleted}
+                                onCheckedChange={() => reminder.id && handleToggleComplete(reminder.id, reminder.isCompleted)}
                                 disabled={isProcessing === reminder.id}
-                                aria-label={`Delete reminder "${reminder.title}"`}
-                            >
-                                {isProcessing === reminder.id && isProcessing !== editingReminder?.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Reminder?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete the reminder titled &quot;{reminder.title}&quot;.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => reminder.id && handleDeleteReminder(reminder.id)} className="bg-destructive hover:bg-destructive/90">
-                                Delete
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                  </CardFooter>
-                </Card>
-              ))}
+                                aria-label={`Mark reminder "${reminder.title}" as ${reminder.isCompleted ? 'pending' : 'complete'}`}
+                                className="ml-4 h-5 w-5 flex-shrink-0"
+                            />
+                        </div>
+                    </CardHeader>
+                    {reminder.notes && (
+                        <CardContent className="py-2">
+                        <p className="text-sm text-muted-foreground">{reminder.notes}</p>
+                        </CardContent>
+                    )}
+                    <CardFooter className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" size="sm" onClick={() => reminder.id && openEditReminderDialog(reminder)} disabled={isProcessing === reminder.id || reminder.isCompleted}>
+                        <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit
+                        </Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon"
+                                    className="text-destructive hover:text-destructive/80 h-8 w-8" 
+                                    disabled={isProcessing === reminder.id}
+                                    aria-label={`Delete reminder "${reminder.title}"`}
+                                >
+                                    {isProcessing === reminder.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Reminder?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                    This action cannot be undone. This will permanently delete the reminder titled &quot;{reminder.title}&quot;.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => reminder.id && handleDeleteReminder(reminder.id)} className="bg-destructive hover:bg-destructive/90">
+                                    Delete
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    </CardFooter>
+                    </Card>
+                );
+              })}
             </div>
           )}
         </CardContent>
