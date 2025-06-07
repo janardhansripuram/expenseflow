@@ -5,52 +5,66 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon } from "lucide-react";
+import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon, BellRing, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { getRecentExpensesByUser, getExpensesByUser } from "@/lib/firebase/firestore";
-import type { Expense } from "@/lib/types";
-import { format } from "date-fns";
+import { getRecentExpensesByUser, getExpensesByUser, getRemindersByUser } from "@/lib/firebase/firestore";
+import type { Expense, Reminder } from "@/lib/types";
+import { format, parseISO, isToday, isPast, differenceInDays, startOfDay } from "date-fns";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface ChartDataItem {
   category: string;
   total: number;
 }
 
+interface ProcessedReminder extends Reminder {
+  status: 'overdue' | 'dueToday' | 'upcoming';
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
+  const [userReminders, setUserReminders] = useState<Reminder[]>([]);
+  
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingChartData, setIsLoadingChartData] = useState(true);
+  const [isLoadingReminders, setIsLoadingReminders] = useState(true);
 
   useEffect(() => {
     async function fetchDashboardData() {
       if (user) {
         setIsLoadingExpenses(true);
         setIsLoadingChartData(true);
+        setIsLoadingReminders(true);
         try {
           const expensesPromise = getRecentExpensesByUser(user.uid, 3);
           const allExpensesPromise = getExpensesByUser(user.uid); 
+          const remindersPromise = getRemindersByUser(user.uid);
 
-          const [recent, allUserExpenses] = await Promise.all([expensesPromise, allExpensesPromise]);
+          const [recent, allUserExpenses, reminders] = await Promise.all([expensesPromise, allExpensesPromise, remindersPromise]);
           
           setRecentExpenses(recent);
           setAllUserExpensesForChart(allUserExpenses);
+          setUserReminders(reminders);
 
         } catch (error) {
           console.error("Failed to fetch dashboard data:", error);
         } finally {
           setIsLoadingExpenses(false);
           setIsLoadingChartData(false);
+          setIsLoadingReminders(false);
         }
       } else {
         setRecentExpenses([]);
         setAllUserExpensesForChart([]);
+        setUserReminders([]);
         setIsLoadingExpenses(false);
         setIsLoadingChartData(false);
+        setIsLoadingReminders(false);
       }
     }
     fetchDashboardData();
@@ -72,6 +86,35 @@ export default function DashboardPage() {
   }, [allUserExpensesForChart]);
 
 
+  const processedRemindersForDashboard = useMemo(() => {
+    if (!userReminders) return [];
+    const today = startOfDay(new Date());
+    return userReminders
+      .filter(r => !r.isCompleted)
+      .map(r => {
+        const dueDate = parseISO(r.dueDate);
+        let status: 'overdue' | 'dueToday' | 'upcoming' = 'upcoming';
+        if (isPast(dueDate) && !isToday(dueDate)) {
+          status = 'overdue';
+        } else if (isToday(dueDate)) {
+          status = 'dueToday';
+        }
+        return { ...r, status, dueDateObj: dueDate };
+      })
+      .sort((a, b) => {
+        if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+        if (a.status !== 'overdue' && b.status === 'overdue') return 1;
+        if (a.status === 'dueToday' && b.status !== 'dueToday') return -1;
+        if (a.status !== 'dueToday' && b.status === 'dueToday') return 1;
+        return differenceInDays(a.dueDateObj, b.dueDateObj); // Sort upcoming by soonest
+      })
+      .slice(0, 3); // Show top 3 actionable reminders
+  }, [userReminders]);
+
+  const overdueCount = useMemo(() => userReminders.filter(r => !r.isCompleted && isPast(parseISO(r.dueDate)) && !isToday(parseISO(r.dueDate))).length, [userReminders]);
+  const dueTodayCount = useMemo(() => userReminders.filter(r => !r.isCompleted && isToday(parseISO(r.dueDate))).length, [userReminders]);
+
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
@@ -88,7 +131,7 @@ export default function DashboardPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground">Welcome back! Here&apos;s an overview of your finances.</p>
+          <p className="text-muted-foreground">Welcome back! Here&apos;s an overview of your finances and tasks.</p>
         </div>
         <Button asChild>
           <Link href="/expenses/add">
@@ -197,10 +240,66 @@ export default function DashboardPage() {
         
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
+            <CardTitle className="font-headline text-xl flex items-center">
+                <BellRing className="mr-2 h-5 w-5 text-primary" />
+                Upcoming Reminders
+            </CardTitle>
+            <CardDescription>
+                {overdueCount > 0 && <span className="text-destructive font-semibold">{overdueCount} Overdue. </span>}
+                {dueTodayCount > 0 && <span className="text-amber-600 font-semibold">{dueTodayCount} Due Today.</span>}
+                {(overdueCount === 0 && dueTodayCount === 0 && processedRemindersForDashboard.length > 0) && <span>Your next few reminders.</span>}
+                {(overdueCount === 0 && dueTodayCount === 0 && processedRemindersForDashboard.length === 0 && !isLoadingReminders) && <span>No pending reminders.</span>}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingReminders ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <p className="ml-2 text-sm text-muted-foreground">Loading reminders...</p>
+              </div>
+            ) : processedRemindersForDashboard.length > 0 ? (
+              <div className="space-y-3">
+                {processedRemindersForDashboard.map(reminder => (
+                  <div key={reminder.id} className="flex justify-between items-start p-2 rounded-md hover:bg-muted/50 transition-colors">
+                    <div className="flex-1">
+                      <p className={cn("font-medium text-sm", reminder.status === 'overdue' && 'text-destructive', reminder.status === 'dueToday' && 'text-amber-600')}>
+                        {reminder.title}
+                      </p>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span>Due: {format(parseISO(reminder.dueDate), "MMM dd")}</span>
+                        {reminder.status === 'overdue' && <Badge variant="destructive" className="text-xs">Overdue</Badge>}
+                        {reminder.status === 'dueToday' && <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">Today</Badge>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                 <Button variant="outline" className="w-full mt-2" asChild>
+                  <Link href="/reminders">
+                    View All Reminders <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4 text-center py-4">
+                 <CheckCircle2 className="mx-auto h-10 w-10 text-green-500" />
+                <p className="text-sm text-muted-foreground">All caught up on reminders!</p>
+                 <Button variant="outline" className="w-full" asChild>
+                  <Link href="/reminders/add">
+                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Reminder
+                  </Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+      </div>
+       <Card className="shadow-lg mt-6">
+          <CardHeader>
             <CardTitle className="font-headline text-xl">Quick Actions</CardTitle>
             <CardDescription>Get started with common tasks.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <Button variant="default" className="w-full" asChild>
               <Link href="/expenses/add">Add Expense</Link>
             </Button>
@@ -212,9 +311,18 @@ export default function DashboardPage() {
                 <SplitIcon className="mr-2 h-4 w-4" /> Split an Expense
               </Link>
             </Button>
+             <Button variant="outline" className="w-full" asChild>
+              <Link href="/income/add">Add Income</Link>
+            </Button>
+             <Button variant="outline" className="w-full" asChild>
+              <Link href="/groups">Manage Groups</Link>
+            </Button>
+            <Button variant="outline" className="w-full" asChild>
+              <Link href="/reminders/add">Set Reminder</Link>
+            </Button>
           </CardContent>
         </Card>
-      </div>
     </div>
   );
 }
+
