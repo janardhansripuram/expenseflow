@@ -534,14 +534,17 @@ const sidebarMenuButtonVariants = cva(
   }
 )
 
-// Explicitly type the ref for SidebarMenuButton
 const SidebarMenuButton = React.forwardRef<
-  HTMLButtonElement | HTMLAnchorElement, // Can be a button or an anchor
-  React.ComponentProps<"button"> & React.ComponentProps<"a"> & { // Combine props, Next.js Link will provide href
+  HTMLButtonElement | HTMLAnchorElement,
+  React.ComponentProps<"button"> &
+  Omit<React.ComponentProps<"a">, "href"> & { // Omit href from anchor to define it explicitly
     asChild?: boolean
     isActive?: boolean
     tooltip?: string | React.ComponentProps<typeof TooltipContent>
-  } & VariantProps<typeof sidebarMenuButtonVariants>
+    variant?: VariantProps<typeof sidebarMenuButtonVariants>["variant"]
+    size?: VariantProps<typeof sidebarMenuButtonVariants>["size"]
+    href?: string // Explicitly define href
+  }
 >(
   (
     {
@@ -551,52 +554,50 @@ const SidebarMenuButton = React.forwardRef<
       size = "default",
       tooltip,
       className,
-      href, // Expect href to be passed if it's meant to be a link
-      children,
+      href, // Destructured href
+      children, // Destructured children
       ...props // Remaining props
     },
     ref
   ) => {
     const { isMobile, state } = useSidebar()
     const isLink = typeof href === 'string';
-    const Comp = asChild ? Slot : (isLink ? "a" : "button");
 
-    const componentProps = {
-      ref,
+    const baseProps = {
       "data-sidebar": "menu-button",
       "data-size": size,
-      "data-active": isActive,
+      "data-active": String(isActive), // Ensure it's a string for data attribute
       className: cn(sidebarMenuButtonVariants({ variant, size, className })),
-      href: isLink ? href : undefined, // Only add href if it's an anchor
       ...props, // Spread other props like onClick, disabled, etc.
-      children
     };
 
-    // Type assertion for Comp if needed, or ensure props are compatible
-    const buttonElement = React.createElement(Comp, componentProps as any);
+    let elementToRender;
 
+    if (asChild) {
+      elementToRender = <Slot ref={ref} {...baseProps} href={href}>{children}</Slot>;
+    } else if (isLink) {
+      elementToRender = <a ref={ref as React.Ref<HTMLAnchorElement>} {...baseProps} href={href}>{children}</a>;
+    } else {
+      elementToRender = <button ref={ref as React.Ref<HTMLButtonElement>} {...baseProps}>{children}</button>;
+    }
 
     if (!tooltip) {
-      return buttonElement
+      return elementToRender;
     }
 
-    if (typeof tooltip === "string") {
-      tooltip = {
-        children: tooltip,
-      }
-    }
+    const tooltipPropsObject = typeof tooltip === "string" ? { children: tooltip } : tooltip;
 
     return (
       <Tooltip>
-        <TooltipTrigger asChild>{buttonElement}</TooltipTrigger>
+        <TooltipTrigger asChild>{elementToRender}</TooltipTrigger>
         <TooltipContent
           side="right"
           align="center"
           hidden={state !== "collapsed" || isMobile}
-          {...tooltip}
+          {...tooltipPropsObject}
         />
       </Tooltip>
-    )
+    );
   }
 )
 SidebarMenuButton.displayName = "SidebarMenuButton"
@@ -714,33 +715,34 @@ const SidebarMenuSubItem = React.forwardRef<
 >(({ ...props }, ref) => <li ref={ref} {...props} />)
 SidebarMenuSubItem.displayName = "SidebarMenuSubItem"
 
-// Explicitly type the ref for SidebarMenuSubButton
 const SidebarMenuSubButton = React.forwardRef<
-  HTMLAnchorElement, // It primarily acts as an anchor
+  HTMLAnchorElement,
   React.ComponentProps<"a"> & {
     asChild?: boolean
     size?: "sm" | "md"
     isActive?: boolean
   }
 >(({ asChild = false, size = "md", isActive, className, children, ...props }, ref) => {
-  const Comp = asChild ? Slot : "a";
-  const componentProps = {
-      ref,
-      "data-sidebar": "menu-sub-button",
-      "data-size": size,
-      "data-active": isActive,
-      className: cn(
-        "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
-        "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
-        size === "sm" && "text-xs",
-        size === "md" && "text-sm",
-        "group-data-[collapsible=icon]:hidden",
-        className
-      ),
-      ...props, // href will be in here if passed from Link asChild
-      children
+  const baseProps = {
+    "data-sidebar": "menu-sub-button",
+    "data-size": size,
+    "data-active": String(isActive), // Ensure it's a string for data attribute
+    className: cn(
+      "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
+      "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+      size === "sm" && "text-xs",
+      size === "md" && "text-sm",
+      "group-data-[collapsible=icon]:hidden",
+      className
+    ),
+    ...props, // Contains href, onClick from Link
   };
-  return React.createElement(Comp, componentProps as any);
+
+  if (asChild) {
+    return <Slot ref={ref} {...baseProps}>{children}</Slot>;
+  }
+
+  return <a ref={ref} {...baseProps}>{children}</a>;
 })
 SidebarMenuSubButton.displayName = "SidebarMenuSubButton"
 
