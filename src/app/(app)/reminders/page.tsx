@@ -42,7 +42,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { ListChecks, PlusCircle, Trash2, CalendarIcon, Edit, Loader2, BellRing } from "lucide-react";
+import { ListChecks, PlusCircle, Trash2, CalendarIcon, Edit, Loader2, BellRing, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { addReminder, getRemindersByUser, updateReminderCompletion, deleteReminder, updateReminder } from "@/lib/firebase/firestore";
@@ -334,9 +334,12 @@ export default function RemindersPage() {
             </div>
           ) : reminders.length === 0 ? (
             <div className="text-center py-10">
-              <ListChecks className="mx-auto h-12 w-12 text-muted-foreground" />
-              <p className="mt-4 text-muted-foreground text-lg">No reminders set yet.</p>
-              <p className="text-sm text-muted-foreground mt-2">Click "Add Reminder" to create your first one.</p>
+              <CheckCircle2 className="mx-auto h-12 w-12 text-muted-foreground" />
+              <p className="mt-4 text-lg text-muted-foreground">No reminders set yet.</p>
+              <p className="text-sm text-muted-foreground mt-2">Looks like you're all caught up! Click "Add Reminder" to create a new one.</p>
+              <Button className="mt-6" onClick={openAddReminderDialog}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Add Your First Reminder
+              </Button>
             </div>
           ) : (
             <div className="space-y-4">
@@ -404,4 +407,3 @@ export default function RemindersPage() {
     </div>
   );
 }
-

@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse, CheckSquare, Handshake, Edit, Trash2, AlertTriangle } from "lucide-react";
+import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse, CheckSquare, Handshake, Edit, Trash2, AlertTriangle, UserPlus, ShoppingBag } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense, getSplitExpensesForUser, updateSplitParticipantSettlement, deleteSplitExpense } from "@/lib/firebase/firestore";
 import type { Expense, Friend, UserProfile, SplitExpense, SplitParticipant, SplitMethod } from "@/lib/types";
@@ -381,11 +381,11 @@ export default function SplitExpensesPage() {
               </div>
             ) : expenses.filter(exp => !exp.groupId).length === 0 ? (
               <div className="text-center py-10">
-                <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
-                <p className="mt-4 text-muted-foreground text-lg">No personal expenses recorded yet.</p>
-                <p className="text-sm text-muted-foreground mt-2">Add personal expenses to split them here, or split group expenses from the group's page.</p>
+                <ShoppingBag className="mx-auto h-12 w-12 text-muted-foreground" />
+                <p className="mt-4 text-muted-foreground text-lg">No personal expenses found.</p>
+                <p className="text-sm text-muted-foreground mt-2">Add some personal expenses first to split them with friends.</p>
                 <Button asChild className="mt-4">
-                  <Link href="/expenses/add">Add Expense</Link>
+                  <Link href="/expenses/add">Add Personal Expense</Link>
                 </Button>
               </div>
             ) : (
@@ -460,7 +460,11 @@ export default function SplitExpensesPage() {
               <div className="space-y-3">
                 <Label className="text-base font-semibold">Select Friends to Include (Paid by You):</Label>
                 {friends.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No friends added. You can add friends on the <Link href="/friends" className="underline text-primary">Friends page</Link> to split expenses with them. For now, you can only split with yourself.</p>
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      <UserPlus className="mx-auto h-10 w-10 mb-2" />
+                      <p>No friends added yet. You can only split this expense with yourself for now.</p>
+                      <p>To split with others, <Link href="/friends" className="underline text-primary hover:text-primary/80">add some friends</Link> first.</p>
+                    </div>
                 ) : (
                 <ScrollArea className="h-40 rounded-md border p-2">
                   {friends.map((friend) => (
@@ -601,7 +605,11 @@ export default function SplitExpensesPage() {
                     <p className="ml-2 text-muted-foreground">Loading split history...</p>
                 </div>
             ) : savedSplits.filter(s => !s.groupId).length === 0 ? ( 
-                <p className="text-muted-foreground text-center py-6">No personal split expenses recorded yet.</p>
+                <div className="text-center py-10">
+                    <ListCollapse className="mx-auto h-12 w-12 text-muted-foreground" />
+                    <p className="mt-4 text-lg text-muted-foreground">No personal split expenses recorded yet.</p>
+                    <p className="text-sm text-muted-foreground mt-2">When you split an expense, it will appear here.</p>
+                </div>
             ) : (
                 <ScrollArea className="max-h-[500px]">
                 <div className="space-y-4 pr-3">

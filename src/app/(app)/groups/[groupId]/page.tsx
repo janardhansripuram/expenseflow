@@ -36,13 +36,13 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save, ArrowRight, Landmark } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save, ArrowRight, Landmark, History, ReceiptText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement } from "@/lib/firebase/firestore";
-import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance, SplitParticipant } from "@/lib/types";
+import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement, logGroupActivity, getGroupActivityLog } from "@/lib/firebase/firestore";
+import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance, SplitParticipant, GroupActivityLogEntry } from "@/lib/types";
 import Image from "next/image";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -74,12 +74,14 @@ export default function GroupDetailsPage() {
   const [splitExpensesForGroup, setSplitExpensesForGroup] = useState<SplitExpense[]>([]);
   const [groupMemberBalances, setGroupMemberBalances] = useState<GroupMemberBalance[]>([]);
   const [pairwiseDebts, setPairwiseDebts] = useState<PairwiseDebt[]>([]);
+  const [activityLog, setActivityLog] = useState<GroupActivityLogEntry[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSplits, setIsLoadingSplits] = useState(true);
   const [isLoadingBalances, setIsLoadingBalances] = useState(true);
   const [isLoadingPairwiseDebts, setIsLoadingPairwiseDebts] = useState(true);
+  const [isLoadingActivityLog, setIsLoadingActivityLog] = useState(true);
   const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null);
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<Record<string, boolean>>({});
@@ -106,17 +108,20 @@ export default function GroupDetailsPage() {
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
         setIsLoadingPairwiseDebts(true);
+        setIsLoadingActivityLog(true);
     } else {
         setIsLoadingExpenses(true); 
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
         setIsLoadingPairwiseDebts(true);
+        setIsLoadingActivityLog(true);
     }
     
     try {
       const groupDataPromise = getGroupDetails(groupId);
       const expensesPromise = getExpensesByGroupId(groupId);
       const splitsPromise = getSplitExpensesByGroupId(groupId);
+      const activityLogPromise = getGroupActivityLog(groupId, 20);
       
       let friendsPromise = Promise.resolve(friends); 
       let profilePromise = Promise.resolve(currentUserProfile);
@@ -126,8 +131,8 @@ export default function GroupDetailsPage() {
         profilePromise = getUserProfile(user.uid);
       }
 
-      const [groupData, fetchedFriends, fetchedProfile, expensesForGroup, groupSplits] = await Promise.all([
-        groupDataPromise, friendsPromise, profilePromise, expensesPromise, splitsPromise
+      const [groupData, fetchedFriends, fetchedProfile, expensesForGroup, groupSplits, fetchedLog] = await Promise.all([
+        groupDataPromise, friendsPromise, profilePromise, expensesPromise, splitsPromise, activityLogPromise
       ]);
 
       if (!groupData) {
@@ -149,6 +154,7 @@ export default function GroupDetailsPage() {
       setCurrentUserProfile(fetchedProfile || currentUserProfile);
       setGroupExpenses(expensesForGroup);
       setSplitExpensesForGroup(groupSplits);
+      setActivityLog(fetchedLog);
 
     } catch (error) {
       console.error("Failed to fetch group details:", error);
@@ -157,6 +163,7 @@ export default function GroupDetailsPage() {
       if (refreshAll) setIsLoading(false);
       setIsLoadingExpenses(false);
       setIsLoadingSplits(false);
+      setIsLoadingActivityLog(false);
     }
   }, [user, groupId, toast, router, groupNameForm, friends, currentUserProfile]);
 
@@ -272,7 +279,7 @@ export default function GroupDetailsPage() {
   };
 
   const handleAddMembers = async () => {
-    if (!group || !user) return;
+    if (!group || !user || !currentUserProfile) return;
     const newMemberFriendProfiles = Object.entries(selectedFriendsToAdd)
       .filter(([, isSelected]) => isSelected)
       .map(([friendId]) => friends.find(f => f.uid === friendId))
@@ -292,7 +299,7 @@ export default function GroupDetailsPage() {
 
     setIsProcessingMember("adding"); 
     try {
-      await addMembersToGroup(groupId, newMemberUserProfiles);
+      await addMembersToGroup(groupId, currentUserProfile, newMemberUserProfiles);
       toast({ title: "Members Added", description: "New members have been added to the group." });
       setSelectedFriendsToAdd({});
       setIsAddMembersDialogOpen(false);
@@ -305,7 +312,7 @@ export default function GroupDetailsPage() {
   };
 
   const handleRemoveMember = async (memberIdToRemove: string) => {
-    if (!group || !user) return;
+    if (!group || !user || !currentUserProfile) return;
     if (memberIdToRemove === group.createdBy && group.memberIds.length > 1) {
         toast({variant: "destructive", title: "Action Not Allowed", description: "The group creator cannot be removed if other members exist. Transfer ownership or remove other members first."});
         return;
@@ -319,8 +326,9 @@ export default function GroupDetailsPage() {
 
     setIsProcessingMember(memberIdToRemove);
     try {
-      await removeMemberFromGroup(groupId, memberIdToRemove);
-      toast({ title: "Member Removed", description: "The member has been removed from the group." });
+      const memberToRemoveProfile = group.memberDetails.find(m => m.uid === memberIdToRemove);
+      await removeMemberFromGroup(groupId, currentUserProfile, memberIdToRemove, memberToRemoveProfile?.displayName || memberToRemoveProfile?.email);
+      toast({ title: "Member Action Processed", description: "The member has been removed or you have left the group." });
       
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
         router.push("/groups"); 
@@ -340,13 +348,13 @@ export default function GroupDetailsPage() {
   };
 
   const handleEditGroupName = async (values: GroupNameFormData) => {
-    if (!group || !user || user.uid !== group.createdBy) {
+    if (!group || !user || user.uid !== group.createdBy || !currentUserProfile) {
       toast({ variant: "destructive", title: "Unauthorized", description: "Only the group creator can edit the group name." });
       return;
     }
     setIsSavingGroupName(true);
     try {
-      await updateGroupDetails(groupId, { name: values.name });
+      await updateGroupDetails(groupId, currentUserProfile, { name: values.name });
       toast({ title: "Group Name Updated", description: `Group name changed to "${values.name}".` });
       setGroup(prev => prev ? { ...prev, name: values.name } : null); 
       setIsEditGroupNameDialogOpen(false);
@@ -360,10 +368,14 @@ export default function GroupDetailsPage() {
   };
 
   const handleSettleSplitParticipant = async (splitId: string, participantUserId: string) => {
-    if (!splitId) return;
+    if (!splitId || !currentUserProfile) return;
+    const split = splitExpensesForGroup.find(s => s.id === splitId);
+    const participant = split?.participants.find(p => p.userId === participantUserId);
+    if (!split || !participant) return;
+
     setIsProcessingSettlement(`${splitId}-${participantUserId}`);
     try {
-        await updateSplitParticipantSettlement(splitId, participantUserId, true);
+        await updateSplitParticipantSettlement(groupId, currentUserProfile, splitId, participantUserId, true, participant.displayName || participant.email || 'A participant', split.originalExpenseDescription);
         toast({ title: "Settlement Updated", description: "Participant marked as settled."});
         fetchGroupData(false); 
     } catch (error: any) {
@@ -678,8 +690,9 @@ export default function GroupDetailsPage() {
                         </ScrollArea>
                     ) : (
                         <div className="text-center py-10">
-                            <List className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <ReceiptText className="mx-auto h-12 w-12 text-muted-foreground" />
                             <p className="mt-4 text-muted-foreground text-lg">No expenses recorded for this group yet.</p>
+                            <p className="text-sm text-muted-foreground mt-2">Add an expense to get started!</p>
                         </div>
                     )}
                     <Button 
@@ -871,6 +884,41 @@ export default function GroupDetailsPage() {
                 </CardContent>
             </Card>
 
+            <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center"><History className="mr-2 h-5 w-5 text-primary"/>Activity Log</CardTitle>
+                    <CardDescription>Recent activity within this group.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {isLoadingActivityLog ? (
+                        <div className="flex items-center justify-center py-10">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="ml-2">Loading activity...</p>
+                        </div>
+                    ) : activityLog.length > 0 ? (
+                        <ScrollArea className="h-[250px] md:h-[300px]">
+                            <div className="space-y-3 pr-2">
+                                {activityLog.map(log => (
+                                    <div key={log.id} className="p-3 border rounded-md bg-muted/30">
+                                        <p className="text-sm">
+                                            <span className="font-semibold">{log.actorDisplayName || 'System'}</span> {log.details}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {formatDistanceToNow(log.timestamp.toDate(), { addSuffix: true })}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    ) : (
+                         <div className="text-center py-10">
+                            <History className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <p className="mt-4 text-lg text-muted-foreground">No activity recorded for this group yet.</p>
+                            <p className="text-sm text-muted-foreground mt-2">Actions like adding members or expenses will appear here.</p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
       </div>
       

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, MessageSquare, Trash2, UserCheck, UserX, Loader2, Send } from "lucide-react";
+import { UserPlus, Mail, MessageSquare, Trash2, UserCheck, UserX, Loader2, Send, Inbox } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -256,7 +256,11 @@ export default function FriendsPage() {
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-center py-4">No incoming friend requests.</p>
+            <div className="text-center py-10">
+              <Inbox className="mx-auto h-12 w-12 text-muted-foreground" />
+              <p className="mt-4 text-lg text-muted-foreground">No incoming friend requests.</p>
+              <p className="text-sm text-muted-foreground">When someone sends you a request, it will appear here.</p>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -308,7 +312,7 @@ export default function FriendsPage() {
              <div className="text-center py-10">
               <Users className="mx-auto h-12 w-12 text-muted-foreground" />
               <p className="mt-4 text-lg text-muted-foreground">No friends added yet.</p>
-              <p className="text-sm text-muted-foreground">Use the "Add New Friend" button to send a request.</p>
+              <p className="text-sm text-muted-foreground">Use the "Add New Friend" button above to send a request and start connecting!</p>
             </div>
           )}
         </CardContent>

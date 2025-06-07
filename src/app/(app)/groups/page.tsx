@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Users, PlusCircle, Loader2, User, ChevronRight } from "lucide-react";
+import { Users, PlusCircle, Loader2, User, ChevronRight, PackageOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -280,9 +280,12 @@ export default function GroupsPage() {
             </div>
           ) : (
              <div className="text-center py-10">
-              <Users className="mx-auto h-12 w-12 text-muted-foreground" />
-              <p className="mt-4 text-lg text-muted-foreground">No groups yet.</p>
-              <p className="text-sm text-muted-foreground">Create a group to start sharing expenses with others.</p>
+              <PackageOpen className="mx-auto h-12 w-12 text-muted-foreground" />
+              <p className="mt-4 text-lg text-muted-foreground">You haven't created or joined any groups yet.</p>
+              <p className="text-sm text-muted-foreground mt-2">Create a group to start sharing expenses with friends or colleagues!</p>
+               <Button className="mt-6" onClick={() => setIsCreateGroupDialogOpen(true)}>
+                  <PlusCircle className="mr-2 h-4 w-4" /> Create Your First Group
+               </Button>
             </div>
           )}
         </CardContent>
