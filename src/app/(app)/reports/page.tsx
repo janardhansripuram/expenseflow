@@ -5,10 +5,11 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays, DownloadCloud, AlertTriangle } from "lucide-react";
+import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays, DownloadCloud, AlertTriangle, Filter } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser } from "@/lib/firebase/firestore";
 import type { Expense, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import { summarizeSpending, SummarizeSpendingOutput } from "@/ai/flows/summarize-spending";
 import { useToast } from "@/hooks/use-toast";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
@@ -25,7 +26,7 @@ type ReportPeriod = PeriodOption | "custom";
 interface ChartDataItem {
   category: string;
   total: number;
-  currency?: CurrencyCode; // For potential future use in more complex charts
+  currency?: CurrencyCode;
 }
 
 const PIE_COLORS = [
@@ -42,7 +43,7 @@ const PIE_COLORS = [
 export default function ReportsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [allRawExpenses, setAllRawExpenses] = useState<Expense[]>([]);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<SummarizeSpendingOutput | null>(null);
@@ -51,6 +52,9 @@ export default function ReportsPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
 
+  const [uniqueCurrenciesForFilter, setUniqueCurrenciesForFilter] = useState<CurrencyCode[]>([]);
+  const [selectedChartCurrencyFilter, setSelectedChartCurrencyFilter] = useState<CurrencyCode | 'all'>('all');
+
 
   useEffect(() => {
     async function fetchExpenses() {
@@ -58,7 +62,7 @@ export default function ReportsPage() {
         setIsLoadingExpenses(true);
         try {
           const userExpenses = await getExpensesByUser(user.uid);
-          setExpenses(userExpenses);
+          setAllRawExpenses(userExpenses);
         } catch (error) {
           console.error("Failed to fetch expenses:", error);
           toast({ variant: "destructive", title: "Error", description: "Could not load expenses for reports." });
@@ -70,8 +74,8 @@ export default function ReportsPage() {
     fetchExpenses();
   }, [user, toast]);
 
-  const filteredExpenses = useMemo(() => {
-    if (!expenses.length) {
+  const expensesFilteredByPeriod = useMemo(() => {
+    if (!allRawExpenses.length) {
       return [];
     }
 
@@ -102,33 +106,52 @@ export default function ReportsPage() {
       startDateFilter = startOfDay(startOfMonth(now));
       endDateFilter = endOfDay(endOfMonth(now));
     } else if (selectedPeriod === "allTime") {
-      return expenses;
+      return allRawExpenses;
     }
 
     if (startDateFilter && endDateFilter) {
-      return expenses.filter(expense => {
+      return allRawExpenses.filter(expense => {
         const expenseDate = parseISO(expense.date); 
         return expenseDate >= startDateFilter! && expenseDate <= endDateFilter!;
       });
     } else if (selectedPeriod !== "allTime") {
         return [];
     }
-    return expenses; 
-  }, [expenses, selectedPeriod, customStartDate, customEndDate]);
+    return allRawExpenses; 
+  }, [allRawExpenses, selectedPeriod, customStartDate, customEndDate]);
+  
+  useEffect(() => {
+    const currencies = Array.from(new Set(expensesFilteredByPeriod.map(exp => exp.currency))).sort() as CurrencyCode[];
+    setUniqueCurrenciesForFilter(currencies);
+    // Reset chart currency filter if the new set of expenses doesn't include the currently selected one
+    if (currencies.length > 0 && selectedChartCurrencyFilter !== 'all' && !currencies.includes(selectedChartCurrencyFilter)) {
+        setSelectedChartCurrencyFilter('all');
+    } else if (currencies.length === 0 && selectedChartCurrencyFilter !== 'all') {
+        setSelectedChartCurrencyFilter('all');
+    }
+  }, [expensesFilteredByPeriod, selectedChartCurrencyFilter]);
+
+
+  const expensesForChart = useMemo(() => {
+    if (selectedChartCurrencyFilter === 'all') {
+      return expensesFilteredByPeriod;
+    }
+    return expensesFilteredByPeriod.filter(exp => exp.currency === selectedChartCurrencyFilter);
+  }, [expensesFilteredByPeriod, selectedChartCurrencyFilter]);
   
   const hasMixedCurrenciesInChartData = useMemo(() => {
-    if (filteredExpenses.length <= 1) return false;
-    const currencies = new Set(filteredExpenses.map(exp => exp.currency));
+    if (selectedChartCurrencyFilter !== 'all' || expensesForChart.length <= 1) return false;
+    const currencies = new Set(expensesForChart.map(exp => exp.currency));
     return currencies.size > 1;
-  }, [filteredExpenses]);
+  }, [expensesForChart, selectedChartCurrencyFilter]);
 
   useEffect(() => {
-    setSummaryData(null);
-  }, [filteredExpenses]);
+    setSummaryData(null); // Reset AI summary when period or currency filter for charts changes
+  }, [expensesFilteredByPeriod, selectedChartCurrencyFilter]);
 
 
   const handleGenerateSummary = async () => {
-    if (!user || filteredExpenses.length === 0) {
+    if (!user || expensesFilteredByPeriod.length === 0) {
       toast({ title: "No Data", description: "No expenses found for the selected period to generate a summary." });
       setSummaryData(null);
       return;
@@ -141,21 +164,11 @@ export default function ReportsPage() {
     setIsLoadingSummary(true);
     setSummaryData(null); 
     try {
-      const spendingDataString = filteredExpenses
+      const spendingDataString = expensesFilteredByPeriod // Use period-filtered expenses for AI summary
         .map(e => `${e.category} - ${e.description}: ${e.amount.toFixed(2)} ${e.currency} on ${e.date}`)
         .join('\n');
       
-      let periodDescription = "";
-      if (selectedPeriod === "custom") {
-        periodDescription = `the period from ${format(parseISO(customStartDate), "MMM dd, yyyy")} to ${format(parseISO(customEndDate), "MMM dd, yyyy")}`;
-      } else {
-        switch (selectedPeriod) {
-          case "last7days": periodDescription = "the last 7 days"; break;
-          case "last30days": periodDescription = "the last 30 days"; break;
-          case "currentMonth": periodDescription = "the current month"; break;
-          case "allTime": periodDescription = "all time"; break;
-        }
-      }
+      let periodDescription = getPeriodDescriptionForCharts(); // Use the same description as charts
       
       const result = await summarizeSpending({ spendingData: spendingDataString, period: periodDescription });
       setSummaryData(result);
@@ -169,26 +182,31 @@ export default function ReportsPage() {
   };
   
   const chartData: ChartDataItem[] = useMemo(() => {
-    if (!filteredExpenses.length) return [];
-    const dataByCat = filteredExpenses.reduce((acc, expense) => {
-      // NOTE: Direct sum if mixed currencies. Stated as limitation.
+    if (!expensesForChart.length) return [];
+    const dataByCat = expensesForChart.reduce((acc, expense) => {
       acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
       return acc;
     }, {} as Record<string, number>);
 
     return Object.entries(dataByCat)
-      .map(([category, total]) => ({ category, total: parseFloat(total.toFixed(2)) }))
+      .map(([category, total]) => ({ category, total: parseFloat(total.toFixed(2)), currency: selectedChartCurrencyFilter === 'all' ? undefined : selectedChartCurrencyFilter }))
       .sort((a, b) => b.total - a.total);
-  }, [filteredExpenses]);
+  }, [expensesForChart, selectedChartCurrencyFilter]);
 
   const totalSpendingForPeriod = useMemo(() => {
-    // NOTE: Direct sum if mixed currencies.
     return chartData.reduce((sum, item) => sum + item.total, 0);
   }, [chartData]);
+  
+  const chartCurrencyLabel = useMemo(() => {
+    if (selectedChartCurrencyFilter === 'all') return ""; // Generic label or empty
+    const currencyInfo = SUPPORTED_CURRENCIES.find(c => c.code === selectedChartCurrencyFilter);
+    return currencyInfo ? `(${currencyInfo.symbol})` : `(${selectedChartCurrencyFilter})`;
+  }, [selectedChartCurrencyFilter]);
+
 
   const barChartConfig = {
     total: {
-      label: "Total Spent", // Label will be generic as currency might be mixed
+      label: `Total Spent ${chartCurrencyLabel}`,
       color: "hsl(var(--chart-1))",
     },
   } satisfies Record<string, any>;
@@ -232,39 +250,31 @@ export default function ReportsPage() {
   };
 
   const handleExportToCSV = () => {
-    if (filteredExpenses.length === 0) {
+    if (expensesFilteredByPeriod.length === 0) { // Export based on period filter, not chart currency filter
       toast({ title: "No Data", description: "No expenses to export for the selected period." });
       return;
     }
 
     const headers = [
-        "Date", 
-        "Description", 
-        "Category", 
-        "Amount", 
-        "Currency", // New column
-        "Notes", 
-        "Group Name",
-        "Is Recurring",
-        "Recurrence Frequency",
-        "Recurrence End Date",
-        "Tags"
+        "Date", "Description", "Category", "Amount", "Currency",
+        "Notes", "Group Name", "Is Recurring", "Recurrence Frequency",
+        "Recurrence End Date", "Tags"
     ];
     const csvRows = [
       headers.join(','), 
-      ...filteredExpenses.map(expense => {
+      ...expensesFilteredByPeriod.map(expense => {
         const row = [
           format(parseISO(expense.date), "yyyy-MM-dd"),
           escapeCSVField(expense.description),
           escapeCSVField(expense.category),
           expense.amount, 
-          escapeCSVField(expense.currency), // Added currency
+          escapeCSVField(expense.currency),
           escapeCSVField(expense.notes),
           escapeCSVField(expense.groupName),
           escapeCSVField(expense.isRecurring),
           escapeCSVField(expense.recurrence),
           escapeCSVField(expense.recurrenceEndDate),
-          escapeCSVField(expense.tags?.join("; ")), // Join tags with semicolon
+          escapeCSVField(expense.tags?.join("; ")),
         ];
         return row.join(',');
       })
@@ -297,7 +307,7 @@ export default function ReportsPage() {
           <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Reports</h1>
           <p className="text-muted-foreground">Analyze your spending patterns and generate financial reports.</p>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto flex-wrap">
             <Select value={selectedPeriod} onValueChange={(value: ReportPeriod) => setSelectedPeriod(value)}>
               <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Select period" />
@@ -310,9 +320,22 @@ export default function ReportsPage() {
                 <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={selectedChartCurrencyFilter} onValueChange={(value: CurrencyCode | 'all') => setSelectedChartCurrencyFilter(value)} disabled={uniqueCurrenciesForFilter.length === 0}>
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue placeholder="Filter Chart Currency" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Currencies (Direct Sum)</SelectItem>
+                {uniqueCurrenciesForFilter.map(currency => (
+                  <SelectItem key={currency} value={currency}>
+                    {SUPPORTED_CURRENCIES.find(c => c.code === currency)?.name || currency} Only
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button 
                 onClick={handleGenerateSummary} 
-                disabled={isLoadingSummary || isLoadingExpenses || filteredExpenses.length === 0 || (selectedPeriod === 'custom' && (!customStartDate || !customEndDate))}
+                disabled={isLoadingSummary || isLoadingExpenses || expensesFilteredByPeriod.length === 0 || (selectedPeriod === 'custom' && (!customStartDate || !customEndDate))}
                 className="w-full sm:w-auto"
             >
                 {isLoadingSummary ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
@@ -320,12 +343,12 @@ export default function ReportsPage() {
             </Button>
              <Button 
                 onClick={handleExportToCSV} 
-                disabled={isLoadingExpenses || filteredExpenses.length === 0}
+                disabled={isLoadingExpenses || expensesFilteredByPeriod.length === 0}
                 variant="outline"
                 className="w-full sm:w-auto"
             >
                 <DownloadCloud className="mr-2 h-4 w-4" />
-                Export to CSV
+                Export CSV
             </Button>
         </div>
       </div>
@@ -373,7 +396,7 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {!isLoadingExpenses && filteredExpenses.length === 0 && (
+      {!isLoadingExpenses && expensesFilteredByPeriod.length === 0 && (
          <Card className="shadow-lg">
             <CardHeader>
                 <CardTitle className="font-headline">No Data</CardTitle>
@@ -385,7 +408,7 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {!isLoadingExpenses && filteredExpenses.length > 0 && (
+      {!isLoadingExpenses && expensesFilteredByPeriod.length > 0 && (
         <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
             <Card className="shadow-lg">
             <CardHeader>
@@ -393,14 +416,16 @@ export default function ReportsPage() {
                 <BarChart3 className="mr-2 h-6 w-6 text-primary" />
                 Spending by Category
                 </CardTitle>
-                <CardDescription>Visual breakdown of your expenses for {getPeriodDescriptionForCharts()}.</CardDescription>
+                <CardDescription>Visual breakdown of your expenses for {getPeriodDescriptionForCharts()}.
+                {selectedChartCurrencyFilter !== 'all' && ` Showing data for ${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.name || selectedChartCurrencyFilter} only.`}
+                </CardDescription>
             </CardHeader>
             <CardContent className="w-full">
-                {hasMixedCurrenciesInChartData && (
+                {selectedChartCurrencyFilter === 'all' && hasMixedCurrenciesInChartData && (
                     <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
                         <AlertTriangle className="h-4 w-4 text-amber-600" />
                         <AlertDescription>
-                        Chart data includes expenses in multiple currencies summed directly. This may not be arithmetically accurate.
+                        Chart displays direct sum of amounts in various currencies. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
                         </AlertDescription>
                     </Alert>
                 )}
@@ -415,10 +440,14 @@ export default function ReportsPage() {
                         axisLine={false}
                         tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
                         />
-                        <YAxis tickFormatter={(value) => `$${value}`} />
+                        <YAxis tickFormatter={(value) => selectedChartCurrencyFilter === 'all' ? `$${value}`: `${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.symbol || ''}${value}`} />
                         <Tooltip 
                         cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
-                        content={<ChartTooltipContent indicator="dot" />} 
+                        content={<ChartTooltipContent indicator="dot" formatter={(value, name, props) => {
+                            const currencyCode = props.payload.currency || (selectedChartCurrencyFilter !== 'all' ? selectedChartCurrencyFilter : undefined);
+                            const currencySymbol = currencyCode ? (SUPPORTED_CURRENCIES.find(c=>c.code === currencyCode)?.symbol || '') : (selectedChartCurrencyFilter === 'all' ? '' : '$'); // Default to $ or specific if filtered
+                            return `${currencySymbol}${Number(value).toLocaleString()}`;
+                         }} />} 
                         />
                         <Legend content={<ChartLegendContent />} />
                         <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
@@ -434,14 +463,16 @@ export default function ReportsPage() {
                         <PieChartIcon className="mr-2 h-6 w-6 text-primary" />
                         Category Distribution
                     </CardTitle>
-                    <CardDescription>Proportional spending by category for {getPeriodDescriptionForCharts()}.</CardDescription>
+                    <CardDescription>Proportional spending by category for {getPeriodDescriptionForCharts()}.
+                    {selectedChartCurrencyFilter !== 'all' && ` Showing data for ${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.name || selectedChartCurrencyFilter} only.`}
+                    </CardDescription>
                 </CardHeader>
                 <CardContent className="w-full">
-                    {hasMixedCurrenciesInChartData && (
+                    {selectedChartCurrencyFilter === 'all' && hasMixedCurrenciesInChartData && (
                         <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
                             <AlertTriangle className="h-4 w-4 text-amber-600" />
                             <AlertDescription>
-                            Chart data includes expenses in multiple currencies summed directly. This may not be arithmetically accurate.
+                            Chart displays direct sum of amounts in various currencies. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
                             </AlertDescription>
                         </Alert>
                     )}
@@ -451,16 +482,16 @@ export default function ReportsPage() {
                                 <Tooltip
                                     content={({ active, payload }) => {
                                         if (active && payload && payload.length) {
-                                        const data = payload[0].payload; 
+                                        const data = payload[0].payload as ChartDataItem;
                                         const percentage = totalSpendingForPeriod > 0 ? (data.total / totalSpendingForPeriod * 100).toFixed(1) : 0;
+                                        const currencySymbol = data.currency ? (SUPPORTED_CURRENCIES.find(c => c.code === data.currency)?.symbol || '') : (selectedChartCurrencyFilter === 'all' ? '' : (SUPPORTED_CURRENCIES.find(c => c.code === selectedChartCurrencyFilter)?.symbol || '$'));
                                         return (
                                             <div className="rounded-lg border bg-background p-2.5 shadow-sm text-sm">
                                                 <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5">
                                                     <div className="flex flex-col">
                                                         <span className="font-medium">{data.category}</span>
                                                         <span className="text-muted-foreground">
-                                                            {/* Amount shown is direct sum, currency not specified here as it might be mixed */}
-                                                            Amount: {data.total.toLocaleString()} ({percentage}%)
+                                                            Amount: {currencySymbol}{data.total.toLocaleString()} ({percentage}%)
                                                         </span>
                                                     </div>
                                                 </div>
@@ -554,3 +585,4 @@ export default function ReportsPage() {
     </div>
   );
 }
+
