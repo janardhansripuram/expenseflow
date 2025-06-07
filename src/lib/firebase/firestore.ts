@@ -178,6 +178,8 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
 export async function deleteExpense(expenseId: string): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
+    // Note: This does not delete associated images from Firebase Storage.
+    // That would require a separate call to a storage deletion function.
     await deleteDoc(docRef);
   } catch (error) {
     console.error("Error deleting document: ", error);
@@ -493,11 +495,19 @@ export async function updateGroupDetails(groupId: string, data: { name?: string 
     batch.update(groupRef, updateData);
 
     if (data.name) {
+      // Update groupName in associated expenses
       const expensesQuery = query(collection(db, EXPENSES_COLLECTION), where('groupId', '==', groupId));
       const expensesSnapshot = await getDocs(expensesQuery);
       expensesSnapshot.forEach(expenseDoc => {
         batch.update(expenseDoc.ref, { groupName: data.name });
       });
+
+      // Update originalExpenseDescription in associated splitExpenses if it contains the old group name
+      // This part is more complex as it assumes a naming convention.
+      // For simplicity, if the split expense is tied to this group, we might not update its description,
+      // or we might need a more robust way to link or identify group-specific split descriptions.
+      // For now, we will not update splitExpense descriptions to avoid potential issues with complex string replacement.
+      // The groupName on the expense document itself is the primary source for display.
     }
     await batch.commit();
   } catch (error) {
@@ -562,7 +572,10 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
       }
 
       if (groupData.memberIds.length === 1 && groupData.memberIds.includes(memberIdToRemove)) {
+        // If removing the last member, delete the group
         transaction.delete(groupRef);
+        // Potentially, also delete associated expenses and splits if business logic requires.
+        // For now, only deleting the group document.
       } else {
         const updatePayload: { memberIds: any, memberDetails?: any, updatedAt: Timestamp } = {
             memberIds: arrayRemove(memberIdToRemove),
@@ -620,12 +633,15 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
       if (numParticipants === 0) throw new Error("Cannot split equally with zero participants.");
       const amountPerPerson = parseFloat((splitData.totalAmount / numParticipants).toFixed(2));
       // Adjust for rounding for the last participant
+      let sumOfCalculatedAmounts = 0;
       validatedParticipants = validatedParticipants.map((p, index) => {
+        let currentAmountOwed = amountPerPerson;
         if (index === numParticipants - 1) {
-            const sumOfOthers = validatedParticipants.slice(0, index).reduce((acc, curr) => acc + curr.amountOwed, 0);
-            return {...p, amountOwed: parseFloat((splitData.totalAmount - sumOfOthers).toFixed(2))};
+            currentAmountOwed = parseFloat((splitData.totalAmount - sumOfCalculatedAmounts).toFixed(2));
+        } else {
+            sumOfCalculatedAmounts += amountPerPerson;
         }
-        return {...p, amountOwed: amountPerPerson};
+        return {...p, amountOwed: currentAmountOwed};
       });
     }
 
@@ -748,10 +764,9 @@ export async function deleteSplitExpense(splitExpenseId: string): Promise<void> 
   }
 }
 
-export async function updateSplitExpense(splitExpenseId: string, data: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'>>): Promise<void> {
+export async function updateSplitExpense(splitExpenseId: string, data: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'updatedAt' | 'involvedUserIds' | 'originalExpenseId' | 'originalExpenseDescription' | 'paidBy' | 'groupId' >> & { totalAmount?: number }): Promise<void> {
   const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
   try {
-    // Fetch the existing document to preserve originalExpenseId, originalExpenseDescription, paidBy, groupId, createdAt, involvedUserIds
     const existingSplitDoc = await getDoc(splitExpenseRef);
     if (!existingSplitDoc.exists()) {
       throw new Error("Split expense document not found for update.");
@@ -762,7 +777,12 @@ export async function updateSplitExpense(splitExpenseId: string, data: Partial<O
     const newSplitMethod = data.splitMethod || existingSplitData.splitMethod;
     let newParticipants = data.participants || existingSplitData.participants;
 
-    // Recalculate and validate participants if method or amounts/percentages change
+    // Ensure participants cannot be empty if we are updating them
+    if (data.participants && data.participants.length === 0) {
+      throw new Error("Participants list cannot be empty.");
+    }
+    
+    // Re-validate and calculate amounts if method, participants, or totalAmount changes
     if (data.splitMethod || data.participants || data.totalAmount !== undefined) {
       if (newSplitMethod === 'byAmount') {
         const calculatedTotalOwed = newParticipants.reduce((sum, p) => sum + p.amountOwed, 0);
@@ -782,32 +802,26 @@ export async function updateSplitExpense(splitExpenseId: string, data: Partial<O
         const numParticipants = newParticipants.length;
         if (numParticipants === 0) throw new Error("Cannot split equally with zero participants.");
         const amountPerPerson = parseFloat((newTotalAmount / numParticipants).toFixed(2));
+        let sumOfCalculatedAmounts = 0;
         newParticipants = newParticipants.map((p, index) => {
-            if (index === numParticipants - 1) {
-                const sumOfOthers = newParticipants.slice(0, index).reduce((acc, curr) => acc + curr.amountOwed, 0);
-                return {...p, amountOwed: parseFloat((newTotalAmount - sumOfOthers).toFixed(2))};
-            }
-            return {...p, amountOwed: amountPerPerson};
+           let currentAmountOwed = amountPerPerson;
+           if (index === numParticipants - 1) {
+               currentAmountOwed = parseFloat((newTotalAmount - sumOfCalculatedAmounts).toFixed(2));
+           } else {
+               sumOfCalculatedAmounts += amountPerPerson;
+           }
+           return {...p, amountOwed: currentAmountOwed};
         });
       }
     }
     
     const updatePayload: Partial<SplitExpense> = {
-        ...data, // Includes notes, or any other direct fields passed in
-        participants: newParticipants, // Use the potentially recalculated participants
         splitMethod: newSplitMethod,
-        totalAmount: newTotalAmount,
+        participants: newParticipants,
+        totalAmount: newTotalAmount, // Store the potentially updated total amount
+        notes: data.notes !== undefined ? data.notes : existingSplitData.notes,
         updatedAt: Timestamp.now(),
     };
-
-    // Fields that should not be changed by this generic update
-    delete updatePayload.originalExpenseId;
-    delete updatePayload.originalExpenseDescription;
-    delete updatePayload.paidBy;
-    delete updatePayload.groupId;
-    delete updatePayload.createdAt;
-    delete updatePayload.involvedUserIds;
-
 
     await updateDoc(splitExpenseRef, updatePayload as { [key: string]: any });
 
@@ -909,3 +923,4 @@ export async function deleteReminder(reminderId: string): Promise<void> {
     throw error;
   }
 }
+

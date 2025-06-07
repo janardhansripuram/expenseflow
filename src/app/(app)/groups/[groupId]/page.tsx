@@ -45,6 +45,8 @@ import Image from "next/image";
 import { format } from "date-fns";
 import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
 
 const groupNameSchema = z.object({
   name: z.string().min(1, "Group name is required").max(100, "Group name must be 100 characters or less"),
@@ -105,7 +107,8 @@ export default function GroupDetailsPage() {
         setIsLoadingBalances(true);
         setIsLoadingPairwiseDebts(true);
     } else {
-        setIsLoadingExpenses(true);
+        // When only refreshing balances/splits, group & members are likely stable
+        setIsLoadingExpenses(true); // Refresh expenses as they might have been added
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
         setIsLoadingPairwiseDebts(true);
@@ -116,8 +119,8 @@ export default function GroupDetailsPage() {
       const expensesPromise = getExpensesByGroupId(groupId);
       const splitsPromise = getSplitExpensesByGroupId(groupId);
       
-      let friendsPromise = Promise.resolve(friends);
-      let profilePromise = Promise.resolve(currentUserProfile);
+      let friendsPromise = Promise.resolve(friends); // Use existing if not full refresh
+      let profilePromise = Promise.resolve(currentUserProfile); // Use existing if not full refresh
 
       if (refreshAll || friends.length === 0 || !currentUserProfile) {
         friendsPromise = getFriends(user.uid);
@@ -140,7 +143,9 @@ export default function GroupDetailsPage() {
       }
       
       setGroup(groupData);
-      groupNameForm.setValue("name", groupData.name);
+      if (refreshAll || groupNameForm.getValues("name") !== groupData.name) {
+        groupNameForm.setValue("name", groupData.name);
+      }
       setFriends(fetchedFriends || friends);
       setCurrentUserProfile(fetchedProfile || currentUserProfile);
       setGroupExpenses(expensesForGroup);
@@ -150,16 +155,17 @@ export default function GroupDetailsPage() {
       console.error("Failed to fetch group details:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load group details or expenses." });
     } finally {
-      setIsLoading(false);
+      if (refreshAll) setIsLoading(false);
       setIsLoadingExpenses(false);
       setIsLoadingSplits(false);
+      // Balance and pairwise debt loading will be set to false in their respective useEffects
     }
   }, [user, groupId, toast, router, groupNameForm, friends, currentUserProfile]);
 
 
   useEffect(() => {
     fetchGroupData(true); // Initial full fetch
-  }, [fetchGroupData]);
+  }, []); // Only on initial mount, specific refreshes are handled by fetchGroupData(false)
 
 
   useEffect(() => {
@@ -168,7 +174,7 @@ export default function GroupDetailsPage() {
       return;
     }
     setIsLoadingBalances(true);
-
+    
     const balances: Record<string, { paidForGroup: number; owesToOthersInGroup: number }> = {};
     const splitOriginalExpenseIds = new Set(splitExpensesForGroup.map(s => s.originalExpenseId));
 
@@ -176,7 +182,7 @@ export default function GroupDetailsPage() {
       balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
     });
     
-    // Process direct group expenses (only if not formally split yet)
+    // Process direct group expenses that have NOT been formally split
     groupExpenses.forEach(expense => {
       if (!splitOriginalExpenseIds.has(expense.id!) && balances[expense.userId]) {
         balances[expense.userId].paidForGroup += expense.amount;
@@ -185,19 +191,23 @@ export default function GroupDetailsPage() {
     
     // Process formalized splits
     splitExpensesForGroup.forEach(split => {
-      let amountPaidByPayerForOthersInThisSplit = 0;
-      split.participants.forEach(participant => {
-        if (participant.userId !== split.paidBy) { 
-          amountPaidByPayerForOthersInThisSplit += participant.amountOwed;
+        // Credit the payer for amounts owed by OTHERS in this split
+        if (balances[split.paidBy]) {
+            let amountPaidByPayerForOthersInThisSplit = 0;
+            split.participants.forEach(participant => {
+                if (participant.userId !== split.paidBy && !participant.isSettled) {
+                    amountPaidByPayerForOthersInThisSplit += participant.amountOwed;
+                }
+            });
+            balances[split.paidBy].paidForGroup += amountPaidByPayerForOthersInThisSplit;
         }
+
         // Debit participants who OWE in this split (and are not the payer and not settled)
-        if (balances[participant.userId] && participant.userId !== split.paidBy && !participant.isSettled) {
-          balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
-        }
-      });
-      if (balances[split.paidBy]) {
-        balances[split.paidBy].paidForGroup += amountPaidByPayerForOthersInThisSplit;
-      }
+        split.participants.forEach(participant => {
+            if (balances[participant.userId] && participant.userId !== split.paidBy && !participant.isSettled) {
+                balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
+            }
+        });
     });
     
     const finalBalances: GroupMemberBalance[] = group.memberDetails.map(member => {
@@ -306,8 +316,8 @@ export default function GroupDetailsPage() {
         toast({variant: "destructive", title: "Action Not Allowed", description: "The group creator cannot be removed if other members exist. Transfer ownership or remove other members first."});
         return;
     }
-     if (memberIdToRemove === user.uid && group.memberIds.length === 1) {
-        // This will trigger group deletion by firestore function
+     if (memberIdToRemove === user.uid && group.memberIds.length === 1 && group.createdBy === user.uid) {
+        // User is the creator and the only member, this will delete the group.
     } else if (memberIdToRemove === user.uid) {
         // User is leaving the group
     } else if (user.uid !== group.createdBy) {
@@ -321,7 +331,7 @@ export default function GroupDetailsPage() {
       toast({ title: "Member Removed", description: "The member has been removed from the group." });
       
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
-        router.push("/groups");
+        router.push("/groups"); // Redirect if user left or group was deleted
       } else {
         fetchGroupData(true); 
       }
@@ -346,9 +356,9 @@ export default function GroupDetailsPage() {
     try {
       await updateGroupDetails(groupId, { name: values.name });
       toast({ title: "Group Name Updated", description: `Group name changed to "${values.name}".` });
-      setGroup(prev => prev ? { ...prev, name: values.name } : null);
+      setGroup(prev => prev ? { ...prev, name: values.name } : null); // Optimistic update
       setIsEditGroupNameDialogOpen(false);
-      fetchGroupData(true); 
+      fetchGroupData(false); // Refresh data to ensure consistency, but not full reload
     } catch (error) {
       console.error("Error updating group name:", error);
       toast({ variant: "destructive", title: "Update Failed", description: "Could not update group name." });
@@ -364,7 +374,7 @@ export default function GroupDetailsPage() {
         await updateSplitParticipantSettlement(splitId, participantUserId, true);
         toast({ title: "Settlement Updated", description: "Participant marked as settled."});
         fetchGroupData(false); 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error settling participant:", error);
         toast({ variant: "destructive", title: "Update Failed", description: "Could not update settlement status."});
     } finally {
@@ -574,7 +584,6 @@ export default function GroupDetailsPage() {
                             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                             <AlertDialogDescription>
                                 {member.uid === user?.uid ? "You are about to leave this group." : `This will remove ${member.displayName || member.email} from the group.`}
-                                {group.memberIds.length === 1 && member.uid === group.createdBy ? " Removing the last member (creator) will delete the group." : ""}
                                 This action cannot be undone.
                             </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -625,7 +634,11 @@ export default function GroupDetailsPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><CircleDollarSign className="mr-2 h-5 w-5"/>Group Expenses</CardTitle>
-                    <CardDescription>Expenses associated with {group.name}. Direct group expenses you paid (if not yet split) contribute to your "Paid for Group" balance.</CardDescription>
+                    <CardDescription>
+                        Expenses associated with {group.name}. 
+                        Direct expenses you paid (if not yet formally split) contribute to your &quot;Paid for Group&quot; balance. 
+                        Formally split expenses are detailed in the &quot;Manage Split Settlements&quot; section.
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoadingExpenses ? (
@@ -725,7 +738,10 @@ export default function GroupDetailsPage() {
                         <p className="text-muted-foreground text-center py-4">No balance data to display.</p>
                     )}
                     <p className="text-xs text-muted-foreground mt-4">
-                        "Paid for Group" includes direct group expenses you paid (if not yet split) and amounts others owed you from formal splits you paid for. "Owes from Splits" is your share from splits paid by others (and not yet settled by you). Net Balance reflects your overall financial position.
+                        &quot;Paid for Group&quot; = (Direct expenses you paid - if not split) + (Amounts others owed you from group splits you paid for).
+                        <br/>
+                        &quot;Owes from Splits&quot; = Your unsettled share from group splits paid by others.
+                        Net Balance reflects your overall financial position within the group.
                     </p>
                 </CardContent>
             </Card>
