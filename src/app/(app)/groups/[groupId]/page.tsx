@@ -36,7 +36,7 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save, ArrowRight, Landmark } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement } from "@/lib/firebase/firestore";
@@ -50,6 +50,12 @@ const groupNameSchema = z.object({
   name: z.string().min(1, "Group name is required").max(100, "Group name must be 100 characters or less"),
 });
 type GroupNameFormData = z.infer<typeof groupNameSchema>;
+
+interface PairwiseDebt {
+  from: GroupMemberDetail;
+  to: GroupMemberDetail;
+  amount: number;
+}
 
 
 export default function GroupDetailsPage() {
@@ -65,11 +71,13 @@ export default function GroupDetailsPage() {
   const [groupExpenses, setGroupExpenses] = useState<Expense[]>([]);
   const [splitExpensesForGroup, setSplitExpensesForGroup] = useState<SplitExpense[]>([]);
   const [groupMemberBalances, setGroupMemberBalances] = useState<GroupMemberBalance[]>([]);
+  const [pairwiseDebts, setPairwiseDebts] = useState<PairwiseDebt[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSplits, setIsLoadingSplits] = useState(true);
   const [isLoadingBalances, setIsLoadingBalances] = useState(true);
+  const [isLoadingPairwiseDebts, setIsLoadingPairwiseDebts] = useState(true);
   const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null);
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<Record<string, boolean>>({});
@@ -95,10 +103,12 @@ export default function GroupDetailsPage() {
         setIsLoadingExpenses(true);
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
+        setIsLoadingPairwiseDebts(true);
     } else {
         setIsLoadingExpenses(true);
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
+        setIsLoadingPairwiseDebts(true);
     }
     
     try {
@@ -160,14 +170,13 @@ export default function GroupDetailsPage() {
     setIsLoadingBalances(true);
 
     const balances: Record<string, { paidForGroup: number; owesToOthersInGroup: number }> = {};
+    const splitOriginalExpenseIds = new Set(splitExpensesForGroup.map(s => s.originalExpenseId));
 
     group.memberDetails.forEach(member => {
       balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
     });
     
-    const splitOriginalExpenseIds = new Set(splitExpensesForGroup.map(s => s.originalExpenseId));
-
-    // Process direct group expenses (only if not formally split)
+    // Process direct group expenses (only if not formally split yet)
     groupExpenses.forEach(expense => {
       if (!splitOriginalExpenseIds.has(expense.id!) && balances[expense.userId]) {
         balances[expense.userId].paidForGroup += expense.amount;
@@ -176,25 +185,19 @@ export default function GroupDetailsPage() {
     
     // Process formalized splits
     splitExpensesForGroup.forEach(split => {
-      // Credit the payer for amounts owed by OTHERS in this split
-      let amountPaidForOthersInThisSplit = 0;
-      split.participants.forEach(p => {
-        if (p.userId !== split.paidBy) { 
-          amountPaidForOthersInThisSplit += p.amountOwed;
+      let amountPaidByPayerForOthersInThisSplit = 0;
+      split.participants.forEach(participant => {
+        if (participant.userId !== split.paidBy) { 
+          amountPaidByPayerForOthersInThisSplit += participant.amountOwed;
+        }
+        // Debit participants who OWE in this split (and are not the payer and not settled)
+        if (balances[participant.userId] && participant.userId !== split.paidBy && !participant.isSettled) {
+          balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
         }
       });
       if (balances[split.paidBy]) {
-        balances[split.paidBy].paidForGroup += amountPaidForOthersInThisSplit;
+        balances[split.paidBy].paidForGroup += amountPaidByPayerForOthersInThisSplit;
       }
-
-      // Debit participants who OWE in this split (and are not the payer and not settled)
-      split.participants.forEach(participant => {
-        if (balances[participant.userId]) {
-          if (participant.userId !== split.paidBy && !participant.isSettled) {
-            balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
-          }
-        }
-      });
     });
     
     const finalBalances: GroupMemberBalance[] = group.memberDetails.map(member => {
@@ -213,6 +216,51 @@ export default function GroupDetailsPage() {
     setGroupMemberBalances(finalBalances);
     setIsLoadingBalances(false);
   }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits]);
+
+  useEffect(() => {
+    if (isLoadingBalances || !groupMemberBalances.length || !group) {
+      setIsLoadingPairwiseDebts(true);
+      setPairwiseDebts([]);
+      return;
+    }
+    setIsLoadingPairwiseDebts(true);
+
+    let mutableDebtors = groupMemberBalances
+      .filter(m => m.netBalance < -0.005) // Small tolerance for floating point
+      .map(m => ({ uid: m.uid, amount: Math.abs(m.netBalance) }))
+      .sort((a, b) => b.amount - a.amount);
+
+    let mutableCreditors = groupMemberBalances
+      .filter(m => m.netBalance > 0.005) // Small tolerance
+      .map(m => ({ uid: m.uid, amount: m.netBalance }))
+      .sort((a, b) => b.amount - a.amount);
+    
+    const calculatedDebts: PairwiseDebt[] = [];
+
+    while (mutableDebtors.length > 0 && mutableCreditors.length > 0) {
+      const debtor = mutableDebtors[0];
+      const creditor = mutableCreditors[0];
+      const amountToSettle = Math.min(debtor.amount, creditor.amount);
+
+      if (amountToSettle > 0.005) {
+        const fromProfile = group.memberDetails.find(m => m.uid === debtor.uid);
+        const toProfile = group.memberDetails.find(m => m.uid === creditor.uid);
+        if (fromProfile && toProfile) {
+           calculatedDebts.push({ from: fromProfile, to: toProfile, amount: amountToSettle });
+        }
+      }
+
+      debtor.amount -= amountToSettle;
+      creditor.amount -= amountToSettle;
+
+      if (debtor.amount < 0.005) mutableDebtors.shift();
+      if (creditor.amount < 0.005) mutableCreditors.shift();
+    }
+    
+    setPairwiseDebts(calculatedDebts);
+    setIsLoadingPairwiseDebts(false);
+
+  }, [groupMemberBalances, isLoadingBalances, group]);
 
 
   const handleToggleFriendSelection = (friendId: string) => {
@@ -315,7 +363,7 @@ export default function GroupDetailsPage() {
     try {
         await updateSplitParticipantSettlement(splitId, participantUserId, true);
         toast({ title: "Settlement Updated", description: "Participant marked as settled."});
-        fetchGroupData(false); // Refresh splits and balances
+        fetchGroupData(false); 
     } catch (error) {
         console.error("Error settling participant:", error);
         toast({ variant: "destructive", title: "Update Failed", description: "Could not update settlement status."});
@@ -577,7 +625,7 @@ export default function GroupDetailsPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><CircleDollarSign className="mr-2 h-5 w-5"/>Group Expenses</CardTitle>
-                    <CardDescription>Expenses associated with {group.name}. Only direct expenses *not yet split* contribute to initial 'Paid for Group' balances before formal splits are considered.</CardDescription>
+                    <CardDescription>Expenses associated with {group.name}. Direct group expenses you paid (if not yet split) contribute to your "Paid for Group" balance.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoadingExpenses ? (
@@ -659,7 +707,7 @@ export default function GroupDetailsPage() {
                                                     </Avatar>
                                                     <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === user?.uid ? "(You)" : ""}</span>
                                                 </div>
-                                                <Badge variant={memberBalance.netBalance >= 0 ? "default" : "destructive"} className={memberBalance.netBalance >= 0 ? "bg-green-600 hover:bg-green-700" : ""}>
+                                                <Badge variant={memberBalance.netBalance >= 0 ? "default" : "destructive"} className={cn(memberBalance.netBalance >= 0 ? "bg-green-600 hover:bg-green-700 text-white" : "", "text-white")}>
                                                     {memberBalance.netBalance >= 0 ? <TrendingUp className="mr-1 h-4 w-4"/> : <TrendingDown className="mr-1 h-4 w-4"/>}
                                                     {formatCurrency(memberBalance.netBalance)}
                                                 </Badge>
@@ -677,7 +725,7 @@ export default function GroupDetailsPage() {
                         <p className="text-muted-foreground text-center py-4">No balance data to display.</p>
                     )}
                     <p className="text-xs text-muted-foreground mt-4">
-                        "Paid for Group" includes direct group expenses you paid (if not yet split) and amounts owed to you by others from formal splits you paid for. "Owes from Splits" is your share from splits paid by others. Net Balance reflects your overall financial position within the group.
+                        "Paid for Group" includes direct group expenses you paid (if not yet split) and amounts others owed you from formal splits you paid for. "Owes from Splits" is your share from splits paid by others (and not yet settled by you). Net Balance reflects your overall financial position.
                     </p>
                 </CardContent>
             </Card>
@@ -685,7 +733,7 @@ export default function GroupDetailsPage() {
              <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><Handshake className="mr-2 h-5 w-5 text-primary"/>Manage Split Settlements</CardTitle>
-                    <CardDescription>Settle outstanding shares from group splits.</CardDescription>
+                    <CardDescription>Settle outstanding shares from group splits you paid for.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoadingSplits ? (
@@ -759,10 +807,62 @@ export default function GroupDetailsPage() {
                     )}
                 </CardContent>
             </Card>
+
+            <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center"><Landmark className="mr-2 h-5 w-5"/>Who Owes Whom (Simplified)</CardTitle>
+                    <CardDescription>A simplified summary of debts within the group to help settle up.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {isLoadingPairwiseDebts ? (
+                        <div className="flex items-center justify-center py-10">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="ml-2">Calculating debts...</p>
+                        </div>
+                    ) : pairwiseDebts.length > 0 ? (
+                         <ScrollArea className="h-[200px] md:h-[240px]">
+                            <div className="space-y-3 pr-2">
+                                {pairwiseDebts.map((debt, index) => (
+                                    <Card key={index} className="shadow-sm">
+                                        <CardContent className="p-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Avatar className="h-8 w-8">
+                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(debt.from.displayName, debt.from.email)}`} alt={debt.from.displayName || debt.from.email} data-ai-hint="person avatar"/>
+                                                        <AvatarFallback>{getInitials(debt.from.displayName, debt.from.email)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span className="font-medium text-sm">{debt.from.displayName || debt.from.email}</span>
+                                                </div>
+                                                <div className="flex flex-col items-center">
+                                                    <ArrowRight className="h-5 w-5 text-muted-foreground"/>
+                                                    <span className="text-xs text-destructive font-semibold">{formatCurrency(debt.amount)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                     <Avatar className="h-8 w-8">
+                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(debt.to.displayName, debt.to.email)}`} alt={debt.to.displayName || debt.to.email} data-ai-hint="person avatar"/>
+                                                        <AvatarFallback>{getInitials(debt.to.displayName, debt.to.email)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span className="font-medium text-sm">{debt.to.displayName || debt.to.email}</span>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    ) : (
+                        <p className="text-muted-foreground text-center py-6">All clear! No outstanding debts within the group based on current balances.</p>
+                    )}
+                     <p className="text-xs text-muted-foreground mt-4">
+                        This is a simplified settlement plan. To settle, {pairwiseDebts.length > 0 ? "each person on the left should pay the indicated amount to the person on the right." : "no payments are needed."} Marking individual splits as settled will update these recommendations.
+                    </p>
+                </CardContent>
+            </Card>
+
         </div>
       </div>
       
-      {expenseToSplit && group && (
+      {expenseToSplit && group && currentUserProfile && (
         <GroupExpenseSplitDialog
           isOpen={isSplitExpenseDialogOpen}
           onOpenChange={(isOpen) => {
@@ -777,3 +877,4 @@ export default function GroupDetailsPage() {
     </div>
   );
 }
+
