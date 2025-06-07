@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -40,6 +40,7 @@ const expenseSchema = z.object({
 
 export default function AddExpensePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -80,6 +81,17 @@ export default function AddExpensePage() {
     fetchGroups();
   }, [user, toast]);
 
+  useEffect(() => {
+    const groupIdFromParams = searchParams.get("groupId");
+    if (groupIdFromParams && userGroups.length > 0) {
+      const groupExists = userGroups.some(group => group.id === groupIdFromParams);
+      if (groupExists) {
+        form.setValue("groupId", groupIdFromParams);
+      }
+    }
+  }, [searchParams, userGroups, form]);
+
+
   async function onSubmit(values: ExpenseFormData) {
     if (!user) {
       toast({
@@ -110,7 +122,14 @@ export default function AddExpensePage() {
         title: "Expense Added",
         description: "Your expense has been successfully recorded.",
       });
-      form.reset(); // Reset form after successful submission
+      form.reset({ // Reset to defaults, clearing any pre-filled group
+          description: "",
+          amount: "",
+          category: "",
+          date: format(new Date(), "yyyy-MM-dd"),
+          notes: "",
+          groupId: "",
+      }); 
       router.push("/expenses"); // Navigate to expenses list
     } catch (error) {
       console.error("Failed to add expense:", error);
@@ -235,7 +254,7 @@ export default function AddExpensePage() {
                     </FormLabel>
                     <Select 
                       onValueChange={field.onChange} 
-                      defaultValue={field.value || ""}
+                      value={field.value || ""} // Ensure value is controlled
                       disabled={isLoadingGroups || userGroups.length === 0}
                     >
                       <FormControl>
@@ -310,3 +329,4 @@ export default function AddExpensePage() {
     </div>
   );
 }
+

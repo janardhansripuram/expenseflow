@@ -415,9 +415,8 @@ export default function GroupDetailsPage() {
                     variant="outline" 
                     className="w-full mt-6" 
                     onClick={() => router.push(`/expenses/add?groupId=${groupId}&groupName=${encodeURIComponent(group.name)}`)}
-                    disabled // Phase 2: Enable and implement add expense from here
                 >
-                    <CircleDollarSign className="mr-2 h-4 w-4" /> Add Expense to This Group (Coming Soon)
+                    <CircleDollarSign className="mr-2 h-4 w-4" /> Add Expense to This Group
                 </Button>
             </CardContent>
         </Card>
