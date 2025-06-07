@@ -17,13 +17,13 @@ const ACTIVITY_LOG_SUBCOLLECTION = 'activityLog';
 // Activity Log Functions (Helper, not directly exported usually)
 async function logGroupActivity(
   groupId: string,
-  activityData: Omit<GroupActivityLogEntry, 'id' | 'timestamp'>
+  activityData: Omit<GroupActivityLogEntry, 'id' | 'timestamp'> & { timestamp?: Timestamp } // Allow optional timestamp for direct creation
 ): Promise<void> {
   try {
     const logRef = collection(db, GROUPS_COLLECTION, groupId, ACTIVITY_LOG_SUBCOLLECTION);
     await addDoc(logRef, {
       ...activityData,
-      timestamp: Timestamp.now(),
+      timestamp: activityData.timestamp || Timestamp.now(),
     });
   } catch (error) {
     console.error(`Error logging activity for group ${groupId}:`, error);
@@ -36,11 +36,14 @@ export async function getGroupActivityLog(groupId: string, limitCount: number = 
     const logRef = collection(db, GROUPS_COLLECTION, groupId, ACTIVITY_LOG_SUBCOLLECTION);
     const q = query(logRef, orderBy('timestamp', 'desc'), limit(limitCount));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(docSnap => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-      timestamp: docSnap.data().timestamp as Timestamp, // This will be serialized by the calling page if needed
-    } as GroupActivityLogEntry));
+    return querySnapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        ...data,
+        timestamp: (data.timestamp as Timestamp).toDate().toISOString(),
+      } as GroupActivityLogEntry;
+    });
   } catch (error) {
     console.error(`Error fetching activity log for group ${groupId}:`, error);
     throw error;
@@ -112,7 +115,7 @@ export async function getExpensesByUser(userId: string): Promise<Expense[]> {
         receiptUrl: data.receiptUrl,
         groupId: data.groupId,
         groupName: data.groupName,
-        createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         userId: data.userId,
       });
     });
@@ -146,7 +149,7 @@ export async function getRecentExpensesByUser(userId: string, count: number = 5)
         receiptUrl: data.receiptUrl,
         groupId: data.groupId,
         groupName: data.groupName,
-        createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         userId: data.userId,
       });
     });
@@ -173,7 +176,7 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
         receiptUrl: data.receiptUrl,
         groupId: data.groupId,
         groupName: data.groupName,
-        createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         userId: data.userId,
       };
     } else {
@@ -224,8 +227,6 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
 export async function deleteExpense(expenseId: string): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
-    // Note: This does not delete associated images from Firebase Storage.
-    // That would require a separate call to a storage deletion function.
     await deleteDoc(docRef);
   } catch (error) {
     console.error("Error deleting document: ", error);
@@ -255,7 +256,7 @@ export async function getExpensesByGroupId(groupId: string): Promise<Expense[]> 
         receiptUrl: data.receiptUrl,
         groupId: data.groupId,
         groupName: data.groupName,
-        createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         userId: data.userId,
       });
     });
@@ -275,7 +276,7 @@ export async function createUserProfile(userId: string, email: string, displayNa
       uid: userId,
       email: email.toLowerCase(),
       displayName: displayName || email.split('@')[0],
-      createdAt: Timestamp.now(), // Save as Timestamp
+      createdAt: Timestamp.now(), 
     });
   } catch (error) {
     console.error("Error creating user profile: ", error);
@@ -293,7 +294,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), // Convert to ISO string
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
       } as UserProfile;
     }
     return null;
@@ -313,7 +314,7 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), // Convert to ISO string
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
       } as UserProfile;
     }
     return null;
@@ -340,7 +341,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       return { success: false, message: "You cannot send a friend request to yourself." };
     }
 
-    const toUser = await getUserByEmail(toUserEmail); // This now returns UserProfile with string createdAt
+    const toUser = await getUserByEmail(toUserEmail); 
     if (!toUser) {
       return { success: false, message: "User with this email does not exist." };
     }
@@ -376,7 +377,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       toUserId,
       toUserEmail: toUser.email,
       status: 'pending',
-      createdAt: Timestamp.now(), // Save as Timestamp
+      createdAt: Timestamp.now(), 
     });
     return { success: true, message: "Friend request sent successfully." };
   } catch (error) {
@@ -400,7 +401,7 @@ export async function getIncomingFriendRequests(userId: string): Promise<FriendR
         return { 
             id: doc.id, 
             ...data,
-            createdAt: data.createdAt as Timestamp // This will be serialized by the calling page if needed
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         } as FriendRequest
     });
   } catch (error) {
@@ -417,20 +418,19 @@ export async function acceptFriendRequest(requestId: string, fromUserProfile: Us
     if (!requestSnap.exists()) {
       throw new Error("Friend request does not exist or has been already processed.");
     }
-    const requestData = requestSnap.data() as Omit<FriendRequest, 'id'>;
+    const requestData = requestSnap.data() as Omit<FriendRequest, 'id' | 'createdAt'> & {createdAt: Timestamp};
     if (requestData.status !== 'pending') {
       throw new Error("Friend request is not pending.");
     }
 
-    const now = Timestamp.now(); // Use Firestore Timestamp for saving
+    const now = Timestamp.now(); 
 
-    // Friend type expects Timestamp, so we use 'now'
-    const friendDataForFromUser: Omit<Friend, 'uid'> = { 
+    const friendDataForFromUser: Omit<Friend, 'uid' | 'addedAt'> & {addedAt: Timestamp} = { 
       email: toUserProfile.email,
       displayName: toUserProfile.displayName,
       addedAt: now,
     };
-    const friendDataForToUser: Omit<Friend, 'uid'> = {
+    const friendDataForToUser: Omit<Friend, 'uid'| 'addedAt'> & {addedAt: Timestamp} = {
       email: fromUserProfile.email,
       displayName: fromUserProfile.displayName,
       addedAt: now,
@@ -460,14 +460,14 @@ export async function getFriends(userId: string): Promise<Friend[]> {
   try {
     if (!userId) return [];
     const friendsCollectionRef = collection(db, USERS_COLLECTION, userId, FRIENDS_SUBCOLLECTION);
-    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); // Order by what's available
+    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); 
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(docSnap => {
         const data = docSnap.data();
         return { 
             ...data, 
             uid: docSnap.id,
-            addedAt: data.addedAt as Timestamp // This will be serialized by the calling page if needed
+            addedAt: (data.addedAt as Timestamp).toDate().toISOString(),
         } as Friend
     });
   } catch (error) {
@@ -496,7 +496,7 @@ export async function removeFriend(currentUserId: string, friendUserId: string):
 export async function createGroup(
   creatorProfile: UserProfile,
   groupName: string,
-  initialMemberProfiles: UserProfile[] // These UserProfiles will have string 'createdAt'
+  initialMemberProfiles: UserProfile[] 
 ): Promise<string> {
   try {
     if (!groupName.trim()) throw new Error("Group name cannot be empty.");
@@ -514,7 +514,7 @@ export async function createGroup(
     const groupData = {
       name: groupName,
       createdBy: creatorProfile.uid,
-      createdAt: Timestamp.now(), // Save as Timestamp
+      createdAt: Timestamp.now(), 
       memberIds: memberIds,
       memberDetails: memberDetails,
     };
@@ -560,7 +560,7 @@ export async function getGroupsForUser(userId: string): Promise<Group[]> {
         return { 
             id: docSnap.id, 
             ...data,
-            createdAt: data.createdAt as Timestamp // This will be serialized by the calling page if needed
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         } as Group
     });
   } catch (error) {
@@ -578,7 +578,7 @@ export async function getGroupDetails(groupId: string): Promise<Group | null> {
       return { 
           id: docSnap.id, 
           ...data,
-          createdAt: data.createdAt as Timestamp // This will be serialized by the calling page if needed
+          createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as Group;
     }
     return null;
@@ -590,7 +590,7 @@ export async function getGroupDetails(groupId: string): Promise<Group | null> {
 
 export async function updateGroupDetails(
   groupId: string,
-  actorProfile: UserProfile, // UserProfile with string 'createdAt'
+  actorProfile: UserProfile, 
   data: { name?: string }
 ): Promise<void> {
   try {
@@ -630,8 +630,8 @@ export async function updateGroupDetails(
 
 export async function addMembersToGroup(
   groupId: string,
-  actorProfile: UserProfile, // UserProfile with string 'createdAt'
-  newMemberProfiles: UserProfile[] // These UserProfiles will have string 'createdAt'
+  actorProfile: UserProfile, 
+  newMemberProfiles: UserProfile[] 
 ): Promise<void> {
   try {
     if (newMemberProfiles.length === 0) return;
@@ -683,9 +683,9 @@ export async function addMembersToGroup(
 
 export async function removeMemberFromGroup(
   groupId: string,
-  actorProfile: UserProfile, // UserProfile with string 'createdAt'
+  actorProfile: UserProfile, 
   memberIdToRemove: string,
-  memberDisplayNameToRemove: string // Denormalized for logging
+  memberDisplayNameToRemove: string 
 ): Promise<void> {
    try {
     const groupRef = doc(db, GROUPS_COLLECTION, groupId);
@@ -735,7 +735,7 @@ export async function removeMemberFromGroup(
         actorDisplayName: actorProfile.displayName || actorProfile.email,
         actionType: actionType,
         details: details,
-        relatedMemberId: memberIdToRemove, // Still useful for removed/left member
+        relatedMemberId: memberIdToRemove, 
         relatedMemberName: memberDisplayNameToRemove,
       });
     });
@@ -754,9 +754,9 @@ type CreateSplitExpenseData = {
   paidBy: string;
   participants: SplitParticipant[];
   groupId?: string;
-  groupName?: string; // For logging
+  groupName?: string; 
   notes?: string;
-  actorProfile: UserProfile; // For logging, UserProfile with string 'createdAt'
+  actorProfile?: UserProfile; 
 };
 
 export async function createSplitExpense(splitData: CreateSplitExpenseData): Promise<string> {
@@ -801,7 +801,7 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
 
     const involvedUserIds = Array.from(new Set([splitData.paidBy, ...validatedParticipants.map(p => p.userId)]));
 
-    const dataToSave: Omit<SplitExpense, 'id'> = {
+    const dataToSave: Omit<SplitExpense, 'id' | 'createdAt' | 'updatedAt'> & {createdAt: Timestamp, updatedAt: Timestamp} = {
       originalExpenseId: splitData.originalExpenseId,
       originalExpenseDescription: splitData.originalExpenseDescription,
       splitMethod: splitData.splitMethod,
@@ -811,8 +811,8 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
       involvedUserIds,
       groupId: splitData.groupId || undefined,
       notes: splitData.notes || '',
-      createdAt: Timestamp.now(), // Save as Timestamp
-      updatedAt: Timestamp.now(), // Save as Timestamp
+      createdAt: Timestamp.now(), 
+      updatedAt: Timestamp.now(), 
     };
 
     const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), dataToSave);
@@ -848,8 +848,8 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
         return {
             id: docSnap.id,
             ...data,
-            createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
-            updatedAt: data.updatedAt as Timestamp, // This will be serialized by the calling page if needed
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
+            updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
         } as SplitExpense
     });
   } catch (error) {
@@ -867,8 +867,8 @@ export async function getSplitExpenseById(splitExpenseId: string): Promise<Split
       return {
         id: docSnap.id,
         ...data,
-        createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
-        updatedAt: data.updatedAt as Timestamp, // This will be serialized by the calling page if needed
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
+        updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
       } as SplitExpense;
     }
     return null;
@@ -892,8 +892,8 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
         return {
             id: docSnap.id,
             ...data,
-            createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
-            updatedAt: data.updatedAt as Timestamp, // This will be serialized by the calling page if needed
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
+            updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
         } as SplitExpense
     });
   } catch (error) {
@@ -903,13 +903,14 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
 }
 
 export async function updateSplitParticipantSettlement(
-  groupId: string | undefined, // For logging if it's a group split
-  actorProfile: UserProfile, // User performing the action, UserProfile with string 'createdAt'
   splitExpenseId: string,
   participantUserId: string,
   newSettledStatus: boolean,
-  participantDisplayName: string, // For logging
-  originalExpenseDescription: string // For logging
+  // Optional parameters for group logging
+  groupId?: string, 
+  actorProfile?: UserProfile, 
+  participantDisplayName?: string, 
+  originalExpenseDescription?: string 
 ): Promise<void> {
   const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
   try {
@@ -927,7 +928,7 @@ export async function updateSplitParticipantSettlement(
       });
       transaction.update(splitExpenseRef, { participants: updatedParticipants, updatedAt: Timestamp.now() });
 
-      if (groupId) { // Log only if it's a group split
+      if (groupId && actorProfile && participantDisplayName && originalExpenseDescription) {
         const settlementStatus = newSettledStatus ? "settled" : "unsettled";
         const targetDisplayName = participantUserId === actorProfile.uid ? "their share" : `${participantDisplayName}'s share`;
         
@@ -969,7 +970,7 @@ export async function updateSplitExpense(
     if (!existingSplitDoc.exists()) {
       throw new Error("Split expense document not found for update.");
     }
-    const existingSplitData = existingSplitDoc.data() as SplitExpense;
+    const existingSplitData = existingSplitDoc.data() as Omit<SplitExpense, 'createdAt'|'updatedAt'> & {createdAt: Timestamp, updatedAt: Timestamp};
 
     const newSplitMethod = data.splitMethod || existingSplitData.splitMethod;
     let newParticipants = data.participants || existingSplitData.participants;
@@ -1011,7 +1012,7 @@ export async function updateSplitExpense(
       }
     }
     
-    const updatePayload: Partial<SplitExpense> = {
+    const updatePayload: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'updatedAt'>> & {updatedAt: Timestamp} = {
         splitMethod: newSplitMethod,
         participants: newParticipants,
         notes: data.notes !== undefined ? data.notes : existingSplitData.notes,
@@ -1039,8 +1040,8 @@ export async function addReminder(userId: string, reminderData: ReminderFormData
       dueDate: Timestamp.fromDate(new Date(reminderData.dueDate)),
       recurrence: reminderData.recurrence,
       isCompleted: false,
-      createdAt: now, // Save as Timestamp
-      updatedAt: now, // Save as Timestamp
+      createdAt: now, 
+      updatedAt: now, 
     });
     return docRef.id;
   } catch (error) {
@@ -1069,8 +1070,8 @@ export async function getRemindersByUser(userId: string): Promise<Reminder[]> {
         dueDate: (data.dueDate as Timestamp).toDate().toISOString().split('T')[0],
         recurrence: data.recurrence as RecurrenceType,
         isCompleted: data.isCompleted,
-        createdAt: data.createdAt as Timestamp, // This will be serialized by the calling page if needed
-        updatedAt: data.updatedAt as Timestamp, // This will be serialized by the calling page if needed
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
+        updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
       });
     });
     return reminders;

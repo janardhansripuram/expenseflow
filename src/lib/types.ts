@@ -21,7 +21,7 @@ export interface Expense {
   date: string; // Stored as YYYY-MM-DD string from form, converted to Firestore Timestamp on save
   notes?: string;
   receiptUrl?: string;
-  createdAt: Timestamp; // Firestore Timestamp - Note: This might also need serialization if passed to client
+  createdAt: string; 
   userId: string;
   groupId?: string; // ID of the group this expense belongs to
   groupName?: string; // Denormalized name of the group
@@ -43,7 +43,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
-  createdAt: string; // Changed from Timestamp to string
+  createdAt: string; 
 }
 
 export interface FriendRequest {
@@ -54,14 +54,14 @@ export interface FriendRequest {
   toUserId: string;
   toUserEmail: string;
   status: 'pending';
-  createdAt: Timestamp; // Might need serialization
+  createdAt: string; 
 }
 
 export interface Friend {
   uid: string;
   email: string;
   displayName?: string;
-  addedAt: Timestamp; // Might need serialization
+  addedAt: string; 
 }
 
 export interface GroupMemberDetail {
@@ -74,7 +74,7 @@ export interface Group {
   id: string;
   name: string;
   createdBy: string;
-  createdAt: Timestamp; // Might need serialization
+  createdAt: string; 
   memberIds: string[];
   memberDetails: GroupMemberDetail[];
 }
@@ -100,8 +100,8 @@ export interface SplitExpense {
   participants: SplitParticipant[];
   involvedUserIds: string[];
   groupId?: string;
-  createdAt: Timestamp; // Might need serialization
-  updatedAt?: Timestamp; // Might need serialization
+  createdAt: string; 
+  updatedAt?: string; 
   notes?: string;
 }
 
@@ -112,17 +112,17 @@ export interface Reminder {
   userId: string;
   title: string;
   notes?: string;
-  dueDate: string;
+  dueDate: string; // This is already a string, used for yyyy-MM-dd
   recurrence: RecurrenceType;
   isCompleted: boolean;
-  createdAt: Timestamp; // Might need serialization
-  updatedAt: Timestamp; // Might need serialization
+  createdAt: string; 
+  updatedAt: string; 
 }
 
 export type ReminderFormData = {
   title: string;
   notes?: string;
-  dueDate: string;
+  dueDate: string; // yyyy-MM-dd
   recurrence: RecurrenceType;
 };
 
@@ -153,7 +153,7 @@ export interface GroupActivityLogEntry {
   actorDisplayName: string;
   actionType: ActivityActionType;
   details: string;
-  timestamp: Timestamp; // Might need serialization
+  timestamp: string; // Changed from Timestamp
   relatedMemberId?: string;
   relatedMemberName?: string;
   relatedExpenseId?: string;
