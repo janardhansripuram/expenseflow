@@ -1,6 +1,7 @@
+
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { getFirestore, Firestore, enableIndexedDbPersistence, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDY6sr6tYPvaBHhGO_WNK7R-pIkquUaFLI',
@@ -16,8 +17,8 @@ const firebaseConfig = {
 };
 
 let app: FirebaseApp;
-let auth: Auth;
-let db: Firestore;
+let authInstance: Auth;
+let dbInstance: Firestore;
 
 if (getApps().length === 0) {
   app = initializeApp(firebaseConfig);
@@ -25,7 +26,29 @@ if (getApps().length === 0) {
   app = getApp();
 }
 
-auth = getAuth(app);
-db = getFirestore(app);
+authInstance = getAuth(app);
+dbInstance = getFirestore(app);
 
-export { app, auth, db };
+// Attempt to enable Firestore offline persistence
+try {
+  enableIndexedDbPersistence(dbInstance, { cacheSizeBytes: CACHE_SIZE_UNLIMITED })
+    .then(() => {
+      console.log("Firebase Firestore offline persistence enabled.");
+    })
+    .catch((err) => {
+      if (err.code === 'failed-precondition') {
+        // This can happen if multiple tabs are open, persistence can only be enabled in one.
+        // Or if it's already been enabled.
+        console.warn("Firestore offline persistence failed or already enabled: ", err.message);
+      } else if (err.code === 'unimplemented') {
+        // The current browser does not support all of the features required to enable persistence.
+        console.warn("Firestore offline persistence not supported in this browser environment.");
+      } else {
+        console.error("Firestore offline persistence failed with error: ", err);
+      }
+    });
+} catch (error) {
+    console.error("Error initializing Firestore offline persistence: ", error);
+}
+
+export { app, authInstance as auth, dbInstance as db };
