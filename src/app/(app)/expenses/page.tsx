@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PlusCircle, ListFilter, Loader2, Edit, Trash2, Users, RefreshCw, XCircle } from "lucide-react";
+import { PlusCircle, ListFilter, Loader2, Edit, Trash2, Users, RefreshCw, XCircle, TagsIcon } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser, deleteExpense, getGroupsForUser } from "@/lib/firebase/firestore";
 import type { Expense, Group, RecurrenceType } from "@/lib/types";
@@ -135,7 +135,8 @@ export default function ExpensesPage() {
 
     if (currentFilters.searchTerm) {
       processedExpenses = processedExpenses.filter(exp => 
-        exp.description.toLowerCase().includes(currentFilters.searchTerm.toLowerCase())
+        exp.description.toLowerCase().includes(currentFilters.searchTerm.toLowerCase()) ||
+        (exp.tags && exp.tags.some(tag => tag.toLowerCase().includes(currentFilters.searchTerm.toLowerCase())))
       );
     }
 
@@ -264,7 +265,7 @@ export default function ExpensesPage() {
                     id="searchTerm" 
                     value={tempFilters.searchTerm}
                     onChange={(e) => setTempFilters(prev => ({...prev, searchTerm: e.target.value}))}
-                    placeholder="Description..."
+                    placeholder="Description or Tag..."
                     className="col-span-3" 
                   />
                 </div>
@@ -424,6 +425,7 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Recurrence</TableHead>
                   <TableHead>Group</TableHead>
+                  <TableHead>Tags</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -458,6 +460,20 @@ export default function ExpensesPage() {
                         </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground italic">Personal</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {expense.tags && expense.tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-[150px]">
+                          {expense.tags.slice(0, 3).map(tag => (
+                            <Badge key={tag} variant="outline" className="text-xs font-normal">{tag}</Badge>
+                          ))}
+                          {expense.tags.length > 3 && (
+                             <Badge variant="outline" className="text-xs font-normal">+{expense.tags.length - 3} more</Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
@@ -498,5 +514,7 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
+    
 
     
