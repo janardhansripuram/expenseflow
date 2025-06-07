@@ -5,17 +5,19 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useRouter } from "next/navigation"; 
-import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon, BellRing, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon, BellRing, AlertTriangle, CheckCircle2, Filter } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getRecentExpensesByUser, getExpensesByUser, getRemindersByUser } from "@/lib/firebase/firestore";
 import type { Expense, Reminder, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import { format, parseISO, isToday, isPast, differenceInDays, startOfDay } from "date-fns";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ChartDataItem {
   category: string;
@@ -29,14 +31,18 @@ interface ProcessedReminder extends Reminder {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const router = useRouter(); 
+  const router = useRouter();
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
   const [userReminders, setUserReminders] = useState<Reminder[]>([]);
-  
+
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingChartData, setIsLoadingChartData] = useState(true);
   const [isLoadingReminders, setIsLoadingReminders] = useState(true);
+
+  const [uniqueCurrenciesForDashboardChart, setUniqueCurrenciesForDashboardChart] = useState<CurrencyCode[]>([]);
+  const [selectedDashboardChartCurrency, setSelectedDashboardChartCurrency] = useState<CurrencyCode | 'all'>('all');
+
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -46,14 +52,22 @@ export default function DashboardPage() {
         setIsLoadingReminders(true);
         try {
           const expensesPromise = getRecentExpensesByUser(user.uid, 3);
-          const allExpensesPromise = getExpensesByUser(user.uid); 
+          const allExpensesPromise = getExpensesByUser(user.uid);
           const remindersPromise = getRemindersByUser(user.uid);
 
           const [recent, allUserExpenses, reminders] = await Promise.all([expensesPromise, allExpensesPromise, remindersPromise]);
-          
+
           setRecentExpenses(recent);
           setAllUserExpensesForChart(allUserExpenses);
           setUserReminders(reminders);
+
+          const currencies = Array.from(new Set(allUserExpenses.map(exp => exp.currency))).sort() as CurrencyCode[];
+          setUniqueCurrenciesForDashboardChart(currencies);
+          if (currencies.length > 0 && selectedDashboardChartCurrency !== 'all' && !currencies.includes(selectedDashboardChartCurrency)) {
+            setSelectedDashboardChartCurrency('all');
+          } else if (currencies.length === 0 && selectedDashboardChartCurrency !== 'all') {
+            setSelectedDashboardChartCurrency('all');
+          }
 
         } catch (error) {
           console.error("Failed to fetch dashboard data:", error);
@@ -66,32 +80,39 @@ export default function DashboardPage() {
         setRecentExpenses([]);
         setAllUserExpensesForChart([]);
         setUserReminders([]);
+        setUniqueCurrenciesForDashboardChart([]);
         setIsLoadingExpenses(false);
         setIsLoadingChartData(false);
         setIsLoadingReminders(false);
       }
     }
     fetchDashboardData();
-  }, [user]);
+  }, [user, selectedDashboardChartCurrency]); // Re-fetch or re-evaluate unique currencies if selected currency changes? No, only on user change.
+
+  const expensesForDashboardChart = useMemo(() => {
+    if (selectedDashboardChartCurrency === 'all') {
+      return allUserExpensesForChart;
+    }
+    return allUserExpensesForChart.filter(exp => exp.currency === selectedDashboardChartCurrency);
+  }, [allUserExpensesForChart, selectedDashboardChartCurrency]);
+
 
   const dashboardChartData = useMemo(() => {
-    if (!allUserExpensesForChart || allUserExpensesForChart.length === 0) {
+    if (!expensesForDashboardChart || expensesForDashboardChart.length === 0) {
       return [];
     }
-    const dataByCat = allUserExpensesForChart.reduce((acc, expense) => {
-      // For multi-currency, direct sum is problematic.
-      // This chart assumes a single currency or sums directly.
+    const dataByCat = expensesForDashboardChart.reduce((acc, expense) => {
       acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
       return acc;
     }, {} as Record<string, number>);
-    
+
     return Object.entries(dataByCat)
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total)
-      .slice(0, 5); 
-  }, [allUserExpensesForChart]);
+      .slice(0, 5);
+  }, [expensesForDashboardChart]);
 
-  const hasMixedCurrenciesInChartData = useMemo(() => {
+  const hasMixedCurrenciesInFullChartData = useMemo(() => {
     if (allUserExpensesForChart.length <= 1) return false;
     const currencies = new Set(allUserExpensesForChart.map(exp => exp.currency));
     return currencies.size > 1;
@@ -118,9 +139,9 @@ export default function DashboardPage() {
         if (a.status !== 'overdue' && b.status === 'overdue') return 1;
         if (a.status === 'dueToday' && b.status !== 'dueToday') return -1;
         if (a.status !== 'dueToday' && b.status === 'dueToday') return 1;
-        return differenceInDays(a.dueDateObj, b.dueDateObj); 
+        return differenceInDays(a.dueDateObj, b.dueDateObj);
       })
-      .slice(0, 3); 
+      .slice(0, 3);
   }, [userReminders]);
 
   const overdueCount = useMemo(() => userReminders.filter(r => !r.isCompleted && isPast(parseISO(r.dueDate)) && !isToday(parseISO(r.dueDate))).length, [userReminders]);
@@ -130,13 +151,19 @@ export default function DashboardPage() {
   const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
   };
-  
-  const chartConfig = {
+
+  const chartCurrencyLabel = useMemo(() => {
+    if (selectedDashboardChartCurrency === 'all') return "";
+    const currencyInfo = SUPPORTED_CURRENCIES.find(c => c.code === selectedDashboardChartCurrency);
+    return currencyInfo ? `(${currencyInfo.symbol})` : `(${selectedDashboardChartCurrency})`;
+  }, [selectedDashboardChartCurrency]);
+
+  const chartConfig = useMemo(() => ({
     total: {
-      label: "Spent",
+      label: `Spent ${chartCurrencyLabel}`,
       color: "hsl(var(--chart-1))",
     },
-  } satisfies Record<string, any>;
+  }), [chartCurrencyLabel]);
 
   return (
     <div className="space-y-6">
@@ -204,8 +231,27 @@ export default function DashboardPage() {
 
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
-            <CardTitle className="font-headline text-xl">Spending Overview</CardTitle>
-            <CardDescription>Quick look at your top categories.</CardDescription>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                    <CardTitle className="font-headline text-xl">Spending Overview</CardTitle>
+                    <CardDescription>Top categories. {selectedDashboardChartCurrency !== 'all' && `Showing ${selectedDashboardChartCurrency} only.`}</CardDescription>
+                </div>
+                {uniqueCurrenciesForDashboardChart.length > 0 && (
+                    <Select value={selectedDashboardChartCurrency} onValueChange={(value: CurrencyCode | 'all') => setSelectedDashboardChartCurrency(value)}>
+                        <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">
+                            <SelectValue placeholder="Filter Currency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Currencies</SelectItem>
+                            {uniqueCurrenciesForDashboardChart.map(currency => (
+                            <SelectItem key={currency} value={currency}>
+                                {SUPPORTED_CURRENCIES.find(c => c.code === currency)?.name || currency}
+                            </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
+            </div>
           </CardHeader>
           <CardContent>
             {isLoadingChartData ? (
@@ -215,11 +261,11 @@ export default function DashboardPage() {
                 </div>
             ) : dashboardChartData.length > 0 ? (
               <>
-                {hasMixedCurrenciesInChartData && (
+                {selectedDashboardChartCurrency === 'all' && hasMixedCurrenciesInFullChartData && (
                   <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
                     <AlertTriangle className="h-4 w-4 text-amber-600" />
                     <AlertDescription>
-                      Chart data includes expenses in multiple currencies summed directly. This may not be arithmetically accurate.
+                      Chart sums amounts in various currencies. For precise analysis, filter by a specific currency above.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -228,18 +274,21 @@ export default function DashboardPage() {
                     <BarChart accessibilityLayer data={dashboardChartData} layout="vertical" margin={{left: 10, right:10}}>
                       <CartesianGrid horizontal={false} />
                       <XAxis type="number" hide />
-                      <YAxis 
-                          dataKey="category" 
-                          type="category" 
-                          tickLine={false} 
-                          axisLine={false} 
+                      <YAxis
+                          dataKey="category"
+                          type="category"
+                          tickLine={false}
+                          axisLine={false}
                           tickMargin={5}
                           width={80}
                           tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
                       />
-                      <Tooltip 
+                      <Tooltip
                           cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
-                          content={<ChartTooltipContent indicator="dot" />} 
+                          content={<ChartTooltipContent indicator="dot" formatter={(value) => {
+                            const currencySymbolToDisplay = selectedDashboardChartCurrency === 'all' ? '' : (SUPPORTED_CURRENCIES.find(c=>c.code === selectedDashboardChartCurrency)?.symbol || '$');
+                            return `${currencySymbolToDisplay}${Number(value).toLocaleString()}`;
+                          }}/>}
                       />
                       <Bar dataKey="total" fill="var(--color-total)" radius={4} barSize={15} />
                     </BarChart>
@@ -259,7 +308,7 @@ export default function DashboardPage() {
               </Button>
           </CardContent>
         </Card>
-        
+
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
             <CardTitle className="font-headline text-xl flex items-center">
