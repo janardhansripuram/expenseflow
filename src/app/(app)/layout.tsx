@@ -1,7 +1,8 @@
+
 "use client";
 
 import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation'; // Added usePathname
 import { useAuth } from '@/hooks/useAuth';
 import { AppLogo } from '@/components/core/AppLogo';
 import { UserNav } from '@/components/core/UserNav';
@@ -30,14 +31,13 @@ import {
   SidebarTrigger,
   SidebarInset,
 } from '@/components/ui/sidebar';
-import { Button } from '@/components/ui/button';
 
 const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { title: 'Expenses', href: '/expenses', icon: CircleDollarSign, submenu: [
       { title: 'View Expenses', href: '/expenses', icon: CircleDollarSign },
       { title: 'Add Expense', href: '/expenses/add', icon: PlusCircle },
-      { title: 'Scan Receipt (OCR)', href: '/expenses/scan', icon: ScanLine, disabled: true },
+      { title: 'Scan Receipt (OCR)', href: '/expenses/scan', icon: ScanLine }, // Enabled
     ] 
   },
   { title: 'Split Expenses', href: '/split', icon: Split, disabled: true },
@@ -48,16 +48,40 @@ const navItems: NavItem[] = [
   { title: 'Settings', href: '/settings', icon: Settings, separator: true },
 ];
 
+// Helper function to get page title from navItems
+const getPageTitle = (pathname: string, items: NavItem[]): string => {
+  for (const item of items) {
+    if (item.href === pathname) return item.title;
+    if (item.submenu) {
+      for (const subItem of item.submenu) {
+        if (subItem.href === pathname) return subItem.title;
+      }
+    }
+  }
+  // Fallback for dynamic routes or non-nav pages
+  if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
+  if (pathname.startsWith('/expenses/view/')) return 'View Expense';
+  return 'ExpenseFlow'; // Default title
+};
+
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname(); // Get current path
   const [sidebarOpen, setSidebarOpen] = React.useState(true); // Default to open on desktop
+  const [pageTitle, setPageTitle] = React.useState('ExpenseFlow');
 
   useEffect(() => {
     if (!loading && !user) {
       router.replace('/login');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    setPageTitle(getPageTitle(pathname, navItems));
+  }, [pathname]);
+
 
   if (loading) {
     return (
@@ -68,7 +92,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return null; // Or a redirect component, though useEffect handles it
+    return null; 
   }
 
   return (
@@ -87,9 +111,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 backdrop-blur-sm px-4 md:px-6">
             <div className="flex items-center gap-4">
-              <SidebarTrigger className="md:hidden" /> {/* Hidden on md and up */}
+              <SidebarTrigger className="md:hidden" /> 
               <h1 className="text-lg font-semibold font-headline text-foreground md:text-xl">
-                 {/* Dynamically set page title here based on route */}
+                 {pageTitle}
               </h1>
             </div>
           <div className="flex items-center gap-4">

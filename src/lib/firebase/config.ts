@@ -1,19 +1,23 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-// import { getFirestore, Firestore } from "firebase/firestore"; // Will be needed later
+import { getFirestore, Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey: 'AIzaSyBF_mWsg-XduLtYwHSKd5g0b4VZeBBD5qk',
+  appId: '1:48135073119:android:26ef153b2f2f306d9f5aea',
+  messagingSenderId: '48135073119',
+  projectId: 'splitease-1c2af',
+  storageBucket: 'splitease-1c2af.firebasestorage.app',
+  iosBundleId: 'com.splitease.app',
+  iosClientId: 'YOUR_IOS_CLIENT_ID',
+  androidClientId: 'AIzaSyC-y4YY70SOfqFu5fdEn6KQP1iil1Ggutg',
+  authDomain: 'splitease-1c2af.firebaseapp.com',
+  measurementId: 'G-MEASUREMENT_ID'
 };
 
 let app: FirebaseApp;
 let auth: Auth;
-// let db: Firestore; // Will be needed later
+let db: Firestore;
 
 if (getApps().length === 0) {
   app = initializeApp(firebaseConfig);
@@ -22,6 +26,6 @@ if (getApps().length === 0) {
 }
 
 auth = getAuth(app);
-// db = getFirestore(app); // Will be needed later
+db = getFirestore(app);
 
-export { app, auth /*, db */ };
+export { app, auth, db };
