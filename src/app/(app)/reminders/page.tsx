@@ -84,7 +84,11 @@ export default function RemindersPage() {
   });
 
   const fetchReminders = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      setReminders([]); // Clear reminders if no user
+      setIsLoading(false); // Ensure loading stops
+      return;
+    }
     setIsLoading(true);
     try {
       const userReminders = await getRemindersByUser(user.uid);
@@ -92,6 +96,7 @@ export default function RemindersPage() {
     } catch (error) {
       console.error("Error fetching reminders:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load reminders." });
+      setReminders([]); // Clear on error too
     } finally {
       setIsLoading(false);
     }
