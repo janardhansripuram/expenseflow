@@ -468,14 +468,22 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
 }
 
 // Split Expense Functions
-export async function createSplitExpense(splitData: Omit<SplitExpense, 'id' | 'createdAt'>): Promise<string> {
+type CreateSplitExpenseData = Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'> & {
+  originalExpenseDescription: string;
+};
+
+export async function createSplitExpense(splitData: CreateSplitExpenseData): Promise<string> {
   try {
     if (!splitData.paidBy) throw new Error("Payer ID (paidBy) is required.");
     if (!splitData.originalExpenseId) throw new Error("Original expense ID is required.");
+    if (!splitData.originalExpenseDescription) throw new Error("Original expense description is required.");
     if (splitData.participants.length === 0) throw new Error("At least one participant is required.");
+
+    const involvedUserIds = Array.from(new Set([splitData.paidBy, ...splitData.participants.map(p => p.userId)]));
 
     const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), {
       ...splitData,
+      involvedUserIds,
       createdAt: Timestamp.now(),
     });
     return docRef.id;
@@ -485,10 +493,28 @@ export async function createSplitExpense(splitData: Omit<SplitExpense, 'id' | 'c
   }
 }
 
+export async function getSplitExpensesForUser(userId: string): Promise<SplitExpense[]> {
+  try {
+    if (!userId) return [];
+    const q = query(
+      collection(db, SPLIT_EXPENSES_COLLECTION),
+      where('involvedUserIds', 'array-contains', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+      createdAt: docSnap.data().createdAt as Timestamp, // Ensure createdAt is Timestamp
+    } as SplitExpense));
+  } catch (error) {
+    console.error("Error getting split expenses for user: ", error);
+    throw error;
+  }
+}
+
 
 // Helper function for setting document with merge option (useful for createUserProfile if we want to update)
 import { setDoc } from 'firebase/firestore';
 // Usage: await setDoc(userRef, data, { merge: true }); // if you want to merge with existing doc
 
-
-    

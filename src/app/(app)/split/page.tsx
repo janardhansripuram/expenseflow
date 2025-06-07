@@ -4,19 +4,20 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save } from "lucide-react";
+import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense } from "@/lib/firebase/firestore";
+import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense, getSplitExpensesForUser } from "@/lib/firebase/firestore";
 import type { Expense, Friend, UserProfile, SplitExpense, SplitParticipant } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Timestamp } from "firebase/firestore";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 export default function SplitExpensesPage() {
   const { user } = useAuth();
@@ -32,36 +33,45 @@ export default function SplitExpensesPage() {
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [selectedFriendsToSplit, setSelectedFriendsToSplit] = useState<Record<string, boolean>>({});
 
+  const [savedSplits, setSavedSplits] = useState<SplitExpense[]>([]);
+  const [isLoadingSavedSplits, setIsLoadingSavedSplits] = useState(true);
+
   const fetchInitialData = useCallback(async () => {
     if (user) {
       setIsLoadingExpenses(true);
       setIsLoadingFriends(true);
+      setIsLoadingSavedSplits(true);
       try {
-        const [userExpenses, userFriends, profile] = await Promise.all([
+        const [userExpenses, userFriends, profile, userSplits] = await Promise.all([
           getExpensesByUser(user.uid),
           getFriends(user.uid),
-          getUserProfile(user.uid)
+          getUserProfile(user.uid),
+          getSplitExpensesForUser(user.uid)
         ]);
         setExpenses(userExpenses);
         setFriends(userFriends);
         setCurrentUserProfile(profile);
+        setSavedSplits(userSplits);
       } catch (error) {
         console.error("Failed to fetch data for splitting:", error);
         toast({
           variant: "destructive",
           title: "Error Loading Data",
-          description: "Could not load expenses or friends. Please try again.",
+          description: "Could not load expenses, friends, or saved splits. Please try again.",
         });
       } finally {
         setIsLoadingExpenses(false);
         setIsLoadingFriends(false);
+        setIsLoadingSavedSplits(false);
       }
     } else {
       setIsLoadingExpenses(false);
       setIsLoadingFriends(false);
+      setIsLoadingSavedSplits(false);
       setExpenses([]);
       setFriends([]);
       setCurrentUserProfile(null);
+      setSavedSplits([]);
     }
   }, [user, toast]);
 
@@ -122,17 +132,14 @@ export default function SplitExpensesPage() {
     setIsSavingSplit(true);
 
     const participants: SplitParticipant[] = [];
-
-    // Add payer (current user)
     participants.push({
       userId: user.uid,
       displayName: currentUserProfile.displayName || currentUserProfile.email,
       email: currentUserProfile.email,
       amountOwed: amountPerPerson,
-      isSettled: true, // Payer is always settled
+      isSettled: true, 
     });
 
-    // Add selected friends
     Object.entries(selectedFriendsToSplit).forEach(([friendId, isSelected]) => {
       if (isSelected) {
         const friendProfile = friends.find(f => f.uid === friendId);
@@ -148,13 +155,15 @@ export default function SplitExpensesPage() {
       }
     });
     
-    const splitData: Omit<SplitExpense, 'id' | 'createdAt'> = {
+    const splitData = {
         originalExpenseId: selectedExpense.id!,
-        splitType: "equally",
+        originalExpenseDescription: selectedExpense.description,
+        splitType: "equally" as "equally",
         totalAmount: selectedExpense.amount,
         paidBy: user.uid,
         participants: participants,
         notes: `Split of expense: ${selectedExpense.description}`,
+        // involvedUserIds will be handled by createSplitExpense
     };
 
     try {
@@ -164,6 +173,9 @@ export default function SplitExpensesPage() {
           description: `Expense "${selectedExpense.description}" has been successfully split.`,
         });
         handleClearSelection();
+        // Refresh saved splits list
+        const updatedSplits = await getSplitExpensesForUser(user.uid);
+        setSavedSplits(updatedSplits);
     } catch (error) {
         console.error("Error saving split expense:", error);
         toast({
@@ -184,6 +196,11 @@ export default function SplitExpensesPage() {
     }
     if (email) return email.substring(0,2).toUpperCase();
     return '??';
+  }
+  
+  const getPayerDisplayName = (split: SplitExpense): string => {
+    const payer = split.participants.find(p => p.userId === split.paidBy);
+    return payer?.displayName || payer?.email || "Unknown Payer";
   }
 
   const isLoading = isLoadingExpenses || isLoadingFriends;
@@ -324,17 +341,70 @@ export default function SplitExpensesPage() {
             {friends.length > 0 && Object.values(selectedFriendsToSplit).filter(Boolean).length === 0 && (
                  <p className="text-xs text-destructive text-right mt-1">Please select at least one friend to save the split.</p>
             )}
-            <div className="pt-4 border-t">
-                <p className="text-xs text-muted-foreground">
-                    Note: This feature allows splitting expenses equally. Future updates will include tracking settlements and more advanced split options.
-                </p>
-            </div>
+            
           </CardContent>
         </Card>
       )}
+
+    {/* Display Saved Splits */}
+    <Card className="shadow-lg mt-8">
+        <CardHeader>
+            <CardTitle className="font-headline flex items-center">
+                <ListCollapse className="mr-2 h-6 w-6 text-primary" />
+                Split History
+            </CardTitle>
+            <CardDescription>Review your previously saved expense splits.</CardDescription>
+        </CardHeader>
+        <CardContent>
+            {isLoadingSavedSplits ? (
+                <div className="flex justify-center items-center py-10">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="ml-2 text-muted-foreground">Loading split history...</p>
+                </div>
+            ) : savedSplits.length === 0 ? (
+                <p className="text-muted-foreground text-center py-6">No split expenses recorded yet.</p>
+            ) : (
+                <ScrollArea className="max-h-[500px]">
+                <div className="space-y-4 pr-3">
+                    {savedSplits.map((split) => (
+                        <Card key={split.id} className="shadow-sm">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-lg">{split.originalExpenseDescription}</CardTitle>
+                                <CardDescription>
+                                    Total: {formatCurrency(split.totalAmount)} | Split on: {format(split.createdAt.toDate(), "MMM dd, yyyy, p")}
+                                </CardDescription>
+                                <CardDescription>
+                                    Paid by: <span className="font-medium text-foreground">{getPayerDisplayName(split)}</span>
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-sm font-medium mb-2">Participants:</p>
+                                <ul className="space-y-2 text-sm">
+                                    {split.participants.map((p, index) => (
+                                        <li key={index} className="flex justify-between items-center p-2 rounded-md bg-muted/50">
+                                            <div>
+                                                <span className="font-medium text-foreground">{p.displayName || p.email}</span>
+                                                <span className="text-muted-foreground"> owes {formatCurrency(p.amountOwed)}</span>
+                                            </div>
+                                            <Badge variant={p.isSettled ? "default" : "secondary"} className={p.isSettled ? "bg-green-600 hover:bg-green-700 text-white" : ""}>
+                                                {p.isSettled ? "Settled" : "Owes"}
+                                            </Badge>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </CardContent>
+                            {split.notes && (
+                                <CardFooter className="text-xs text-muted-foreground pt-2">
+                                    Notes: {split.notes}
+                                </CardFooter>
+                            )}
+                        </Card>
+                    ))}
+                </div>
+                </ScrollArea>
+            )}
+        </CardContent>
+    </Card>
     </div>
   );
 }
-
-
-    
