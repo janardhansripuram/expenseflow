@@ -174,9 +174,9 @@ export interface GroupMemberBalance {
   uid: string;
   displayName: string;
   email: string;
-  paidForGroup: Partial<Record<CurrencyCode, number>>; // Stores amount paid per currency
-  owesToOthersInGroup: Partial<Record<CurrencyCode, number>>; // Stores amount owed per currency
-  netBalance: Partial<Record<CurrencyCode, number>>; // Stores net balance per currency
+  paidForGroup: Partial<Record<CurrencyCode, number>>;
+  owesToOthersInGroup: Partial<Record<CurrencyCode, number>>;
+  netBalance: Partial<Record<CurrencyCode, number>>;
 }
 
 
@@ -213,6 +213,7 @@ export interface Budget {
   name: string;
   category: string;
   amount: number;
+  currency: CurrencyCode; // Added currency field
   period: "monthly"; // For now, only monthly. Can be extended.
   startDate: string; // ISO string YYYY-MM-DD
   endDate: string; // ISO string YYYY-MM-DD
@@ -224,5 +225,7 @@ export type BudgetFormData = {
   name: string;
   category: string;
   amount: string; // Input as string, converted to number
+  currency: CurrencyCode; // Added currency field
   period: "monthly";
 }
+

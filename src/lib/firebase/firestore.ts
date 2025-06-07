@@ -824,6 +824,7 @@ export async function removeMemberFromGroup(
 type CreateSplitExpenseData = {
   originalExpenseId: string;
   originalExpenseDescription: string;
+  currency: CurrencyCode;
   splitMethod: SplitMethod;
   totalAmount: number;
   paidBy: string;
@@ -879,6 +880,7 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
     const dataToSave: Omit<SplitExpense, 'id' | 'createdAt' | 'updatedAt'> & {createdAt: Timestamp, updatedAt: Timestamp} = {
       originalExpenseId: splitData.originalExpenseId,
       originalExpenseDescription: splitData.originalExpenseDescription,
+      currency: splitData.currency,
       splitMethod: splitData.splitMethod,
       totalAmount: splitData.totalAmount,
       paidBy: splitData.paidBy,
@@ -923,6 +925,7 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
         return {
             id: docSnap.id,
             ...data,
+            currency: data.currency || 'USD', // Default for older splits
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
             updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
@@ -942,6 +945,7 @@ export async function getSplitExpenseById(splitExpenseId: string): Promise<Split
       return {
         id: docSnap.id,
         ...data,
+        currency: data.currency || 'USD', // Default for older splits
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
       } as SplitExpense;
@@ -967,6 +971,7 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
         return {
             id: docSnap.id,
             ...data,
+            currency: data.currency || 'USD', // Default for older splits
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
             updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
@@ -1216,6 +1221,7 @@ export async function addBudget(userId: string, budgetData: BudgetFormData): Pro
       name: budgetData.name,
       category: budgetData.category,
       amount: parseFloat(budgetData.amount),
+      currency: budgetData.currency || 'USD',
       period: budgetData.period,
       startDate: formatISO(startDate, { representation: 'date' }),
       endDate: formatISO(endDate, { representation: 'date' }),
@@ -1230,6 +1236,23 @@ export async function addBudget(userId: string, budgetData: BudgetFormData): Pro
   }
 }
 
+function mapBudgetDocumentToBudgetObject(docSnap: any): Budget {
+    const data = docSnap.data();
+    return {
+        id: docSnap.id,
+        userId: data.userId,
+        name: data.name,
+        category: data.category,
+        amount: data.amount,
+        currency: data.currency || 'USD', // Default currency
+        period: data.period,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+        updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate().toISOString() : undefined,
+    };
+}
+
 export async function getBudgetsByUser(userId: string): Promise<Budget[]> {
   try {
     if (!userId) return [];
@@ -1239,23 +1262,7 @@ export async function getBudgetsByUser(userId: string): Promise<Budget[]> {
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    const budgets: Budget[] = [];
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      budgets.push({
-        id: docSnap.id,
-        userId: data.userId,
-        name: data.name,
-        category: data.category,
-        amount: data.amount,
-        period: data.period,
-        startDate: data.startDate, // Already string
-        endDate: data.endDate,     // Already string
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-        updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate().toISOString() : undefined,
-      });
-    });
-    return budgets;
+    return querySnapshot.docs.map(mapBudgetDocumentToBudgetObject);
   } catch (error) {
     console.error("Error getting budgets by user: ", error);
     throw error;
@@ -1270,16 +1277,22 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
     if (budgetData.name !== undefined) updatePayload.name = budgetData.name;
     if (budgetData.category !== undefined) updatePayload.category = budgetData.category;
     if (budgetData.amount !== undefined) updatePayload.amount = parseFloat(budgetData.amount);
+    if (budgetData.currency !== undefined) updatePayload.currency = budgetData.currency;
+    
+    // Note: Period, startDate, endDate are not typically updated directly here
+    // If period changes, startDate/endDate logic might be more complex.
+    // For now, assuming only amount, name, category, and currency are primary editable fields.
+    // If budgetData.period is provided and is different, recalculate startDate/endDate
     if (budgetData.period !== undefined) {
         updatePayload.period = budgetData.period;
-        // If period changes, might need to recalculate startDate and endDate
-        // For now, assuming period doesn't change or UI handles this logic
         const now = new Date();
         if (budgetData.period === "monthly") {
             updatePayload.startDate = formatISO(startOfMonth(now), { representation: 'date' });
             updatePayload.endDate = formatISO(endOfMonth(now), { representation: 'date' });
         }
+        // Add logic for other periods if implemented
     }
+
 
     if (Object.keys(updatePayload).length > 1) { // More than just updatedAt
         await updateDoc(budgetRef, updatePayload);
@@ -1299,4 +1312,5 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
+
 
