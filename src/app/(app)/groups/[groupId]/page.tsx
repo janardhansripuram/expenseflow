@@ -492,7 +492,7 @@ export default function GroupDetailsPage() {
             <CardHeader className="flex flex-row items-center justify-between">
             <div>
                 <CardTitle className="font-headline flex items-center"><Users className="mr-2 h-5 w-5"/>Group Members</CardTitle>
-                <CardDescription>Manage who is part of this group.</CardDescription>
+                <CardDescription>View members. The group creator can add or remove members. Members can leave the group.</CardDescription>
             </div>
             {isCurrentUserCreator && (
                 <Dialog open={isAddMembersDialogOpen} onOpenChange={setIsAddMembersDialogOpen}>
@@ -894,3 +894,5 @@ export default function GroupDetailsPage() {
   );
 }
 
+
+    
