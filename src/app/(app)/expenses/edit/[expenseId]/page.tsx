@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   Select,
   SelectContent,
@@ -18,15 +20,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Save, Loader2, Users } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Users, CalendarDays, RefreshCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpenseById, updateExpense, getGroupsForUser } from "@/lib/firebase/firestore";
-import type { Expense, ExpenseFormData, Group } from "@/lib/types";
-import { format } from "date-fns";
+import type { Expense, ExpenseFormData, Group, RecurrenceType } from "@/lib/types";
+import { format, parseISO } from "date-fns";
 
 const PERSONAL_GROUP_VALUE = "___PERSONAL___";
+
+const recurrenceOptions: { value: RecurrenceType; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+];
 
 const expenseSchema = z.object({
   description: z.string().min(1, "Description is required"),
@@ -37,6 +46,43 @@ const expenseSchema = z.object({
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
   groupId: z.string().optional(),
+  isRecurring: z.boolean().optional(),
+  recurrence: z.custom<RecurrenceType>((val) => recurrenceOptions.map(o => o.value).includes(val as string)).optional(),
+  recurrenceEndDate: z.string().optional().refine(val => !val || !isNaN(new Date(val).valueOf()), {
+    message: "Invalid date format for recurrence end date"
+  }),
+}).superRefine((data, ctx) => {
+  if (data.isRecurring) {
+    if (!data.recurrence || data.recurrence === "none") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Recurrence frequency (e.g., daily, weekly) is required for recurring expenses.",
+        path: ["recurrence"],
+      });
+    }
+    if (data.recurrenceEndDate && data.date && parseISO(data.recurrenceEndDate) < parseISO(data.date)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Recurrence end date cannot be before the expense date.",
+            path: ["recurrenceEndDate"],
+        });
+    }
+  } else {
+    if (data.recurrence && data.recurrence !== "none") {
+         ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "If a recurrence frequency is selected, please mark the expense as recurring.",
+            path: ["isRecurring"],
+        });
+    }
+    if (data.recurrenceEndDate) {
+         ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Recurrence end date should only be set for recurring expenses.",
+            path: ["recurrenceEndDate"], 
+        });
+    }
+  }
 });
 
 export default function EditExpensePage() {
@@ -59,9 +105,15 @@ export default function EditExpensePage() {
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
-      groupId: "", // Default to empty string, placeholder will show
+      groupId: "",
+      isRecurring: false,
+      recurrence: "none",
+      recurrenceEndDate: "",
     },
   });
+  
+  const isRecurringWatch = form.watch("isRecurring");
+  const recurrenceWatch = form.watch("recurrence");
 
   const fetchExpenseData = useCallback(async () => {
     if (!user || !expenseId) return;
@@ -88,7 +140,10 @@ export default function EditExpensePage() {
           category: expense.category,
           date: expense.date, 
           notes: expense.notes || "",
-          groupId: expense.groupId || "", // If null/undefined, becomes "", placeholder shows
+          groupId: expense.groupId || "",
+          isRecurring: expense.isRecurring || false,
+          recurrence: expense.recurrence || "none",
+          recurrenceEndDate: expense.recurrenceEndDate || "",
         });
       } else {
         toast({ variant: "destructive", title: "Not Found", description: "Expense not found." });
@@ -117,15 +172,23 @@ export default function EditExpensePage() {
       const selectedGroup = userGroups.find(g => g.id === values.groupId);
       if (selectedGroup) {
         dataToSave.groupName = selectedGroup.name;
-        // dataToSave.groupId is already values.groupId
       } else {
-        // Fallback, unlikely if UI is correct
         dataToSave.groupId = null; 
         dataToSave.groupName = null;
       }
-    } else { // This covers if values.groupId is "" (placeholder was showing) OR PERSONAL_GROUP_VALUE
+    } else { 
       dataToSave.groupId = null; 
       dataToSave.groupName = null;
+    }
+
+    if (!values.isRecurring) {
+      dataToSave.recurrence = "none";
+      dataToSave.recurrenceEndDate = undefined; // Will be saved as null or removed by firestore.ts
+    } else {
+       if (values.recurrence === "none") dataToSave.recurrence = "monthly"; // Default if somehow 'none' with isRecurring true
+       if (!values.recurrenceEndDate || values.recurrence === "none") {
+        dataToSave.recurrenceEndDate = undefined;
+      }
     }
     
     try {
@@ -305,6 +368,75 @@ export default function EditExpensePage() {
                   </FormItem>
                 )}
               />
+
+              <Card className="p-4 bg-muted/30 border-dashed">
+                <FormField
+                  control={form.control}
+                  name="isRecurring"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="font-medium text-base flex items-center gap-1">
+                        <RefreshCcw className="h-4 w-4 text-primary"/>
+                        Is this a recurring expense?
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+                {isRecurringWatch && (
+                  <div className="space-y-4 mt-4 pl-2 border-l-2 border-primary/50 ml-2">
+                    <FormField
+                      control={form.control}
+                      name="recurrence"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Recurrence Frequency</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || "none"}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select frequency" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                               {recurrenceOptions.filter(opt => opt.value !== "none").map(opt => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="recurrenceEndDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-1">
+                            <CalendarDays className="h-4 w-4 text-muted-foreground"/>
+                            Recurrence End Date (Optional)
+                          </FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="date" 
+                              {...field} 
+                              disabled={!isRecurringWatch || recurrenceWatch === "none"}
+                              min={form.getValues("date")}
+                            />
+                          </FormControl>
+                          <FormDescription>Leave blank if it recurs indefinitely.</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+              </Card>
               
               <div className="flex justify-end gap-2 pt-4">
                   <Button variant="outline" asChild type="button">
@@ -322,3 +454,4 @@ export default function EditExpensePage() {
     </div>
   );
 }
+    
