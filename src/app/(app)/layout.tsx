@@ -26,9 +26,9 @@ import {
   UserCog,
   Landmark,
   Target,
-  Banknote, // Added Banknote for Income
-  TrendingUp, // Re-using for Income view
-  CreditCard, // Re-using for Add Income
+  Banknote, 
+  TrendingUp, 
+  CreditCard, 
 } from 'lucide-react';
 import {
   SidebarProvider,
@@ -59,7 +59,11 @@ const navItems: NavItem[] = [
   { title: 'Friends', href: '/friends', icon: UserPlus },
   { title: 'Debts', href: '/debts', icon: Landmark },
   { title: 'Reports', href: '/reports', icon: FileText },
-  { title: 'Reminders', href: '/reminders', icon: ListChecks },
+  { title: 'Reminders', href: '/reminders', icon: ListChecks, submenu: [
+      { title: 'View Reminders', href: '/reminders', icon: BellRing },
+      { title: 'Add Reminder', href: '/reminders/add', icon: PlusCircle },
+    ] 
+  },
   { title: 'Settings', href: '/settings', icon: Settings, separator: true },
 ];
 
@@ -68,7 +72,9 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
     if (item.href === pathname && !item.submenu) return item.title;
     if (pathname.startsWith(item.href) && item.submenu) {
         for (const subItem of item.submenu) {
-            if (subItem.href === pathname) return item.title; // Return parent title for submenu items
+             // Specific title for Add Reminder if it's a direct match to a submenu item href
+            if (subItem.href === pathname && pathname === '/reminders/add') return 'Add Reminder';
+            if (subItem.href === pathname) return item.title; 
         }
         // Fallback for dynamic child routes not explicitly in submenu
         if (item.href !== '/dashboard' && pathname.startsWith(item.href + '/')) {
@@ -76,7 +82,10 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
             if (pathname.startsWith('/income/edit/')) return 'Edit Income';
             if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
             if (pathname.startsWith('/split/edit/')) return 'Edit Split';
-            return item.title; // Parent title for other dynamic routes
+            // If it's /reminders/add and wasn't caught above, it means it's not explicitly defined in submenu href
+            // but we still want specific title. (This condition might be redundant if /reminders/add is always in submenu)
+            if (pathname === '/reminders/add') return 'Add Reminder';
+            return item.title; 
         }
         if (item.href === pathname) return item.title;
     }
@@ -90,6 +99,7 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
   // Handle specific static routes that might be top-level or missed
   if (pathname === '/expenses/scan') return 'Scan Receipt';
   if (pathname === '/income/add') return 'Add Income';
+  if (pathname === '/reminders/add') return 'Add Reminder'; // Ensure this is caught
   if (pathname === '/debts') return 'Debts';
   if (pathname === '/budgets') return 'Budgets';
 
