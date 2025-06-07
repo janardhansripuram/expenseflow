@@ -56,13 +56,15 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
     if (item.href === pathname) return item.title;
     if (item.submenu) {
       for (const subItem of item.submenu) {
-        if (subItem.href === pathname) return item.title; // Return parent title for submenus
+        // Exact match for submenu items
+        if (subItem.href === pathname) return item.title; // Return parent title for submenus for now
       }
     }
   }
   if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
   if (pathname.startsWith('/expenses/view/')) return 'View Expense';
   if (pathname === '/expenses/scan') return 'Scan Receipt';
+  if (pathname.startsWith('/groups/') && pathname.split('/').length === 3) return 'Group Details';
   return 'ExpenseFlow'; 
 };
 
@@ -130,3 +132,4 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </SidebarProvider>
   );
 }
+

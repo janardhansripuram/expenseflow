@@ -23,8 +23,9 @@ import { createGroup, getGroupsForUser, getFriends, getUserProfile } from "@/lib
 import type { Group, Friend, UserProfile } from "@/lib/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import Link from "next/link"; // For future group details page
+import Link from "next/link";
 import Image from "next/image";
+import { Timestamp } from "firebase/firestore"; // Import Timestamp
 
 export default function GroupsPage() {
   const { user } = useAuth();
@@ -74,35 +75,49 @@ export default function GroupsPage() {
       .filter(([, isSelected]) => isSelected)
       .map(([friendId]) => friendId);
     
-    // Ensure creator is always a member
     const allMemberIdsSet = new Set([currentUserProfile.uid, ...initialMemberIds]);
     const allMemberIds = Array.from(allMemberIdsSet);
 
-    if (allMemberIds.length === 0) {
+    if (allMemberIds.length === 0) { // Should not happen if creator is always added
         toast({variant: "destructive", title: "Error", description: "A group must have at least one member (the creator)."});
         return;
     }
-
-    const memberProfilesToFetch = allMemberIds.map(async (uid) => {
-        if (uid === currentUserProfile.uid) return currentUserProfile;
-        const friendProfile = friends.find(f => f.uid === uid);
-        if (friendProfile) return { uid: friendProfile.uid, email: friendProfile.email, displayName: friendProfile.displayName, createdAt: Timestamp.now() }; // Mock UserProfile structure from Friend
-        return await getUserProfile(uid); // Fallback if not in friend list (e.g., creator adding themselves but not in their own friend list)
-    });
     
     setIsCreatingGroup(true);
     try {
-        const resolvedMemberProfiles = (await Promise.all(memberProfilesToFetch)).filter(p => p !== null) as UserProfile[];
+        const memberProfilesToCreate: UserProfile[] = [];
+        for (const uid of allMemberIds) {
+            if (uid === currentUserProfile.uid) {
+                memberProfilesToCreate.push(currentUserProfile);
+            } else {
+                const friendProfile = friends.find(f => f.uid === uid);
+                if (friendProfile) {
+                     // Construct a UserProfile-like object from Friend data
+                    memberProfilesToCreate.push({ 
+                        uid: friendProfile.uid, 
+                        email: friendProfile.email, 
+                        displayName: friendProfile.displayName, 
+                        createdAt: Timestamp.now() // Placeholder, actual profile has its own createdAt
+                    });
+                } else {
+                    // This case should ideally not happen if selection is only from friends
+                    // and creator is currentUserProfile
+                    const fetchedProfile = await getUserProfile(uid);
+                    if (fetchedProfile) memberProfilesToCreate.push(fetchedProfile);
+                    else throw new Error(`Could not fetch profile for UID: ${uid}`);
+                }
+            }
+        }
         
-        if (resolvedMemberProfiles.length !== allMemberIds.length) {
-            throw new Error("Could not fetch all member profiles.");
+        if (memberProfilesToCreate.length !== allMemberIds.length) {
+            throw new Error("Could not resolve all member profiles for group creation.");
         }
 
-        await createGroup(currentUserProfile, newGroupName, resolvedMemberProfiles);
+        await createGroup(currentUserProfile, newGroupName, memberProfilesToCreate);
         toast({ title: "Group Created", description: `Group "${newGroupName}" has been successfully created.` });
         setNewGroupName("");
         setSelectedFriends({});
-        fetchInitialData(); // Refresh group list
+        fetchInitialData(); 
         setIsCreateGroupDialogOpen(false);
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Create Group", description: error.message || "An unexpected error occurred." });
@@ -121,8 +136,8 @@ export default function GroupsPage() {
   const getInitials = (name?: string, email?: string) => {
     if (name) {
       const parts = name.split(' ');
-      if (parts.length > 1) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-      return name.substring(0,2).toUpperCase();
+      if (parts.length > 1 && parts[0] && parts[1]) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      if (parts[0]) return parts[0].substring(0,2).toUpperCase();
     }
     if (email) return email.substring(0,2).toUpperCase();
     return '??';
@@ -228,11 +243,11 @@ export default function GroupsPage() {
                           {group.memberIds.length} member{group.memberIds.length === 1 ? '' : 's'}
                         </p>
                       </div>
-                      {/* <Link href={`/groups/${group.id}`} passHref> */}
-                        <Button variant="outline" size="sm" disabled> 
+                      <Link href={`/groups/${group.id}`} passHref>
+                        <Button variant="outline" size="sm"> 
                           View Details <ChevronRight className="ml-1 h-4 w-4" />
                         </Button>
-                      {/* </Link> */}
+                      </Link>
                     </div>
                     <div className="mt-3">
                       <p className="text-xs text-muted-foreground mb-1">Members:</p>
@@ -258,7 +273,7 @@ export default function GroupsPage() {
                     </div>
                   </CardContent>
                   <CardFooter className="text-xs text-muted-foreground p-4 pt-0">
-                      Created by: {group.memberDetails.find(m => m.uid === group.createdBy)?.displayName || 'Unknown'}
+                      Created by: {group.memberDetails.find(m => m.uid === group.createdBy)?.displayName || group.memberDetails.find(m => m.uid === group.createdBy)?.email || 'Unknown'}
                   </CardFooter>
                 </Card>
               ))}
@@ -292,8 +307,6 @@ export default function GroupsPage() {
            <div className="mt-4 p-3 bg-muted/50 rounded-md text-left text-xs">
              <p className="text-foreground font-medium">Upcoming Group Features:</p>
              <ul className="list-disc list-inside text-muted-foreground pl-2 mt-1">
-                <li>Viewing detailed group pages.</li>
-                <li>Adding/removing members from existing groups.</li>
                 <li>Adding expenses directly to groups.</li>
                 <li>Tracking who paid for what and who owes whom.</li>
                 <li>Settling group debts.</li>
@@ -304,11 +317,3 @@ export default function GroupsPage() {
     </div>
   );
 }
-
-// Helper to create a mock Timestamp for client-side UserProfile creation from Friend
-// This is only needed because UserProfile expects a Timestamp, but Friend doesn't store it.
-// Server-side this wouldn't be an issue.
-const Timestamp = {
-  now: () => new Date(), // This is not a Firestore Timestamp, but good enough for mock
-  fromDate: (date: Date) => date,
-};
