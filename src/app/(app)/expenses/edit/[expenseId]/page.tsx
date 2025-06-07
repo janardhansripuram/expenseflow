@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Save, Loader2, Users, CalendarDays, RefreshCcw } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Users, CalendarDays, RefreshCcw, TagsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpenseById, updateExpense, getGroupsForUser } from "@/lib/firebase/firestore";
@@ -51,6 +51,7 @@ const expenseSchema = z.object({
   recurrenceEndDate: z.string().optional().refine(val => !val || !isNaN(new Date(val).valueOf()), {
     message: "Invalid date format for recurrence end date"
   }),
+  tags: z.string().optional(), // Comma-separated string
 }).superRefine((data, ctx) => {
   if (data.isRecurring) {
     if (!data.recurrence || data.recurrence === "none") {
@@ -79,7 +80,7 @@ const expenseSchema = z.object({
          ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Recurrence end date should only be set for recurring expenses.",
-            path: ["recurrenceEndDate"], 
+            path: ["recurrenceEndDate"],
         });
     }
   }
@@ -109,9 +110,10 @@ export default function EditExpensePage() {
       isRecurring: false,
       recurrence: "none",
       recurrenceEndDate: "",
+      tags: "",
     },
   });
-  
+
   const isRecurringWatch = form.watch("isRecurring");
   const recurrenceWatch = form.watch("recurrence");
 
@@ -123,7 +125,7 @@ export default function EditExpensePage() {
     try {
       const expenseDataPromise = getExpenseById(expenseId);
       const groupsPromise = getGroupsForUser(user.uid);
-      
+
       const [expense, groups] = await Promise.all([expenseDataPromise, groupsPromise]);
 
       setUserGroups(groups || []);
@@ -138,12 +140,13 @@ export default function EditExpensePage() {
           description: expense.description,
           amount: String(expense.amount),
           category: expense.category,
-          date: expense.date, 
+          date: expense.date,
           notes: expense.notes || "",
           groupId: expense.groupId || "",
           isRecurring: expense.isRecurring || false,
           recurrence: expense.recurrence || "none",
           recurrenceEndDate: expense.recurrenceEndDate || "",
+          tags: expense.tags ? expense.tags.join(", ") : "", // Join tags array to string for input
         });
       } else {
         toast({ variant: "destructive", title: "Not Found", description: "Expense not found." });
@@ -167,17 +170,17 @@ export default function EditExpensePage() {
     setIsSubmitting(true);
 
     let dataToSave: Partial<ExpenseFormData> = { ...values };
-    
+
     if (values.groupId && values.groupId !== PERSONAL_GROUP_VALUE) {
       const selectedGroup = userGroups.find(g => g.id === values.groupId);
       if (selectedGroup) {
         dataToSave.groupName = selectedGroup.name;
       } else {
-        dataToSave.groupId = null; 
+        dataToSave.groupId = null;
         dataToSave.groupName = null;
       }
-    } else { 
-      dataToSave.groupId = null; 
+    } else {
+      dataToSave.groupId = null;
       dataToSave.groupName = null;
     }
 
@@ -190,7 +193,7 @@ export default function EditExpensePage() {
         dataToSave.recurrenceEndDate = undefined;
       }
     }
-    
+
     try {
       await updateExpense(expenseId, dataToSave);
       toast({
@@ -270,7 +273,7 @@ export default function EditExpensePage() {
                   )}
                 />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
@@ -328,8 +331,8 @@ export default function EditExpensePage() {
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
                       Assign to Group (Optional)
                     </FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
+                    <Select
+                      onValueChange={field.onChange}
                       value={field.value || ""}
                       disabled={isLoadingGroups}
                     >
@@ -364,6 +367,24 @@ export default function EditExpensePage() {
                     <FormControl>
                       <Textarea placeholder="Add any relevant notes here..." {...field} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="tags"
+                render={({ field }) => (
+                  <FormItem>
+                     <FormLabel className="flex items-center">
+                       <TagsIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                       Tags (Optional, comma-separated)
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., work, travel, project-alpha" {...field} />
+                    </FormControl>
+                     <FormDescription>Separate tags with a comma.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -422,9 +443,9 @@ export default function EditExpensePage() {
                             Recurrence End Date (Optional)
                           </FormLabel>
                           <FormControl>
-                            <Input 
-                              type="date" 
-                              {...field} 
+                            <Input
+                              type="date"
+                              {...field}
                               disabled={!isRecurringWatch || recurrenceWatch === "none"}
                               min={form.getValues("date")}
                             />
@@ -437,7 +458,7 @@ export default function EditExpensePage() {
                   </div>
                 )}
               </Card>
-              
+
               <div className="flex justify-end gap-2 pt-4">
                   <Button variant="outline" asChild type="button">
                       <Link href="/expenses">Cancel</Link>
@@ -454,4 +475,3 @@ export default function EditExpensePage() {
     </div>
   );
 }
-    

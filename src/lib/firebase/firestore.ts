@@ -58,6 +58,7 @@ export async function getGroupActivityLog(groupId: string, limitCount: number = 
 export async function addExpense(userId: string, expenseData: ExpenseFormData, actorProfile?: UserProfile): Promise<string> {
   try {
     if (!userId) throw new Error("User ID is required to add an expense.");
+    const tagsArray = expenseData.tags ? expenseData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '') : [];
     const expenseDoc: any = {
       userId,
       description: expenseData.description,
@@ -70,6 +71,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
       isRecurring: expenseData.isRecurring || false,
       recurrence: expenseData.recurrence || 'none',
       recurrenceEndDate: expenseData.recurrenceEndDate ? Timestamp.fromDate(parseISO(expenseData.recurrenceEndDate)) : null,
+      tags: tagsArray,
     };
 
     if (expenseData.groupId && expenseData.groupName) {
@@ -116,6 +118,7 @@ function mapExpenseDocumentToExpenseObject(doc: any): Expense {
     isRecurring: data.isRecurring || false,
     recurrence: data.recurrence || 'none',
     recurrenceEndDate: data.recurrenceEndDate ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] : undefined,
+    tags: data.tags || [], // Ensure tags is always an array
   };
 }
 
@@ -178,17 +181,17 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
     if (expenseData.category !== undefined) updateData.category = expenseData.category;
     if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(parseISO(expenseData.date));
     if (expenseData.notes !== undefined) updateData.notes = expenseData.notes;
-    
-    if (expenseData.receiptUrl === null) { 
+
+    if (expenseData.receiptUrl === null) {
         updateData.receiptUrl = null;
-    } else if (expenseData.receiptUrl !== undefined) { 
+    } else if (expenseData.receiptUrl !== undefined) {
         updateData.receiptUrl = expenseData.receiptUrl;
     }
 
     if (expenseData.groupId) {
       updateData.groupId = expenseData.groupId;
       updateData.groupName = expenseData.groupName;
-    } else if (expenseData.groupId === '' || expenseData.groupId === null) { 
+    } else if (expenseData.groupId === '' || expenseData.groupId === null) {
       updateData.groupId = null;
       updateData.groupName = null;
     }
@@ -198,8 +201,11 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
     if (expenseData.recurrenceEndDate !== undefined) {
       updateData.recurrenceEndDate = expenseData.recurrenceEndDate ? Timestamp.fromDate(parseISO(expenseData.recurrenceEndDate)) : null;
     }
-    
-    if (Object.keys(updateData).length > 1) { 
+    if (expenseData.tags !== undefined) {
+      updateData.tags = expenseData.tags ? expenseData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '') : [];
+    }
+
+    if (Object.keys(updateData).length > 1) {
         await updateDoc(docRef, updateData);
     }
   } catch (error) {
@@ -1267,7 +1273,7 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
             updatePayload.endDate = formatISO(endOfMonth(now), { representation: 'date' });
         }
     }
-    
+
     if (Object.keys(updatePayload).length > 1) { // More than just updatedAt
         await updateDoc(budgetRef, updatePayload);
     }

@@ -30,6 +30,7 @@ export interface Expense {
   isRecurring?: boolean;
   recurrence?: RecurrenceType;
   recurrenceEndDate?: string; // ISO string YYYY-MM-DD
+  tags?: string[]; // Added for tags
 }
 
 export type ExpenseFormData = {
@@ -45,6 +46,7 @@ export type ExpenseFormData = {
   isRecurring?: boolean;
   recurrence?: RecurrenceType;
   recurrenceEndDate?: string; // YYYY-MM-DD
+  tags?: string; // Input as comma-separated string, converted to array
 };
 
 export interface Income {
@@ -137,7 +139,7 @@ export interface Reminder {
   userId: string;
   title: string;
   notes?: string;
-  dueDate: string; 
+  dueDate: string;
   recurrence: RecurrenceType;
   isCompleted: boolean;
   createdAt: string;
@@ -178,7 +180,7 @@ export interface GroupActivityLogEntry {
   actorDisplayName: string;
   actionType: ActivityActionType;
   details: string;
-  timestamp: string; 
+  timestamp: string;
   relatedMemberId?: string;
   relatedMemberName?: string;
   relatedExpenseId?: string;
@@ -191,18 +193,18 @@ export interface Budget {
   id?: string;
   userId: string;
   name: string;
-  category: string; 
+  category: string;
   amount: number;
-  period: "monthly"; 
-  startDate: string; 
-  endDate: string; 
-  createdAt: string; 
-  updatedAt?: string; 
+  period: "monthly";
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
-export interface BudgetFormData {
+export type BudgetFormData = {
   name: string;
   category: string;
-  amount: string; 
+  amount: string;
   period: "monthly";
 }

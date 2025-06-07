@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Save, Paperclip, Loader2, Users, CalendarDays, RefreshCcw } from "lucide-react";
+import { ArrowLeft, Save, Paperclip, Loader2, Users, CalendarDays, RefreshCcw, TagsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { addExpense, getGroupsForUser } from "@/lib/firebase/firestore";
@@ -52,6 +52,7 @@ const expenseSchema = z.object({
   recurrenceEndDate: z.string().optional().refine(val => !val || !isNaN(new Date(val).valueOf()), {
     message: "Invalid date format for recurrence end date"
   }),
+  tags: z.string().optional(), // Comma-separated string
 }).superRefine((data, ctx) => {
   if (data.isRecurring) {
     if (!data.recurrence || data.recurrence === "none") {
@@ -101,12 +102,13 @@ export default function AddExpensePage() {
       description: "",
       amount: "",
       category: "",
-      date: format(new Date(), "yyyy-MM-dd"), 
+      date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
-      groupId: "", 
+      groupId: "",
       isRecurring: false,
       recurrence: "none",
       recurrenceEndDate: "",
+      tags: "",
     },
   });
 
@@ -167,7 +169,7 @@ export default function AddExpensePage() {
         dataToSave.groupId = undefined;
         dataToSave.groupName = undefined;
       }
-    } else { 
+    } else {
       dataToSave.groupId = undefined;
       dataToSave.groupName = undefined;
     }
@@ -191,7 +193,7 @@ export default function AddExpensePage() {
         title: "Expense Added",
         description: "Your expense has been successfully recorded.",
       });
-      form.reset({ 
+      form.reset({
           description: "",
           amount: "",
           category: "",
@@ -201,8 +203,9 @@ export default function AddExpensePage() {
           isRecurring: false,
           recurrence: "none",
           recurrenceEndDate: "",
-      }); 
-      router.push("/expenses"); 
+          tags: "",
+      });
+      router.push("/expenses");
     } catch (error) {
       console.error("Failed to add expense:", error);
       toast({
@@ -266,7 +269,7 @@ export default function AddExpensePage() {
                   )}
                 />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
@@ -324,9 +327,9 @@ export default function AddExpensePage() {
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
                       Assign to Group (Optional)
                     </FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      value={field.value || ""} 
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || ""}
                       disabled={isLoadingGroups || userGroups.length === 0}
                     >
                       <FormControl>
@@ -364,6 +367,25 @@ export default function AddExpensePage() {
                   </FormItem>
                 )}
               />
+
+               <FormField
+                control={form.control}
+                name="tags"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center">
+                       <TagsIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                       Tags (Optional, comma-separated)
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., work, travel, project-alpha" {...field} />
+                    </FormControl>
+                    <FormDescription>Separate tags with a comma.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
 
               <Card className="p-4 bg-muted/30 border-dashed">
                 <FormField
@@ -418,9 +440,9 @@ export default function AddExpensePage() {
                              Recurrence End Date (Optional)
                           </FormLabel>
                           <FormControl>
-                            <Input 
-                              type="date" 
-                              {...field} 
+                            <Input
+                              type="date"
+                              {...field}
                               disabled={!isRecurringWatch || recurrenceWatch === "none"}
                               min={form.getValues("date")} // End date cannot be before expense date
                             />
@@ -440,7 +462,7 @@ export default function AddExpensePage() {
                   <Input id="receipt" type="file" disabled />
                   <p className="text-xs text-muted-foreground">Receipt scanning/upload will be available via the OCR page.</p>
               </div>
-              
+
               <div className="flex justify-end gap-2 pt-4">
                   <Button variant="outline" asChild type="button">
                       <Link href="/expenses">Cancel</Link>
@@ -470,4 +492,3 @@ export default function AddExpensePage() {
     </div>
   );
 }
-    
