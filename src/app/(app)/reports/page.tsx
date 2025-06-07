@@ -5,7 +5,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays } from "lucide-react";
+import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays, DownloadCloud } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser } from "@/lib/firebase/firestore";
 import type { Expense } from "@/lib/types";
@@ -214,6 +214,61 @@ export default function ReportsPage() {
     }
   };
 
+  const escapeCSVField = (field: string | number | undefined | null): string => {
+    if (field === undefined || field === null) {
+      return "";
+    }
+    const stringField = String(field);
+    // If the field contains a comma, newline, or double quote, wrap it in double quotes.
+    // Also, double up any existing double quotes within the field.
+    if (stringField.includes(',') || stringField.includes('\n') || stringField.includes('"')) {
+      return `"${stringField.replace(/"/g, '""')}"`;
+    }
+    return stringField;
+  };
+
+  const handleExportToCSV = () => {
+    if (filteredExpenses.length === 0) {
+      toast({ title: "No Data", description: "No expenses to export for the selected period." });
+      return;
+    }
+
+    const headers = ["Date", "Description", "Category", "Amount", "Notes", "Group Name"];
+    const csvRows = [
+      headers.join(','), // Header row
+      ...filteredExpenses.map(expense => {
+        const row = [
+          format(parseISO(expense.date), "yyyy-MM-dd"),
+          escapeCSVField(expense.description),
+          escapeCSVField(expense.category),
+          expense.amount, // Amount is a number, doesn't need escaping typically
+          escapeCSVField(expense.notes),
+          escapeCSVField(expense.groupName)
+        ];
+        return row.join(',');
+      })
+    ];
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      const reportDate = format(new Date(), "yyyy-MM-dd");
+      link.setAttribute('href', url);
+      link.setAttribute('download', `expenses_report_${reportDate}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: "Export Started", description: "Your CSV report is downloading." });
+    } else {
+      toast({ variant: "destructive", title: "Export Failed", description: "Your browser doesn't support this feature." });
+    }
+  };
+
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -241,6 +296,15 @@ export default function ReportsPage() {
             >
                 {isLoadingSummary ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
                 Generate AI Summary
+            </Button>
+             <Button 
+                onClick={handleExportToCSV} 
+                disabled={isLoadingExpenses || filteredExpenses.length === 0}
+                variant="outline"
+                className="w-full sm:w-auto"
+            >
+                <DownloadCloud className="mr-2 h-4 w-4" />
+                Export to CSV
             </Button>
         </div>
       </div>
@@ -448,3 +512,4 @@ export default function ReportsPage() {
     </div>
   );
 }
+
