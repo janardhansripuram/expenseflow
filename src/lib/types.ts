@@ -21,7 +21,7 @@ export interface Expense {
   date: string; // Stored as YYYY-MM-DD string from form, converted to Firestore Timestamp on save
   notes?: string;
   receiptUrl?: string;
-  createdAt: Timestamp; // Firestore Timestamp
+  createdAt: Timestamp; // Firestore Timestamp - Note: This might also need serialization if passed to client
   userId: string;
   groupId?: string; // ID of the group this expense belongs to
   groupName?: string; // Denormalized name of the group
@@ -43,7 +43,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
-  createdAt: Timestamp;
+  createdAt: string; // Changed from Timestamp to string
 }
 
 export interface FriendRequest {
@@ -54,14 +54,14 @@ export interface FriendRequest {
   toUserId: string;
   toUserEmail: string;
   status: 'pending';
-  createdAt: Timestamp;
+  createdAt: Timestamp; // Might need serialization
 }
 
 export interface Friend {
   uid: string;
   email: string;
   displayName?: string;
-  addedAt: Timestamp;
+  addedAt: Timestamp; // Might need serialization
 }
 
 export interface GroupMemberDetail {
@@ -74,7 +74,7 @@ export interface Group {
   id: string;
   name: string;
   createdBy: string;
-  createdAt: Timestamp;
+  createdAt: Timestamp; // Might need serialization
   memberIds: string[];
   memberDetails: GroupMemberDetail[];
 }
@@ -100,8 +100,8 @@ export interface SplitExpense {
   participants: SplitParticipant[];
   involvedUserIds: string[];
   groupId?: string;
-  createdAt: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt: Timestamp; // Might need serialization
+  updatedAt?: Timestamp; // Might need serialization
   notes?: string;
 }
 
@@ -115,8 +115,8 @@ export interface Reminder {
   dueDate: string;
   recurrence: RecurrenceType;
   isCompleted: boolean;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: Timestamp; // Might need serialization
+  updatedAt: Timestamp; // Might need serialization
 }
 
 export type ReminderFormData = {
@@ -133,4 +133,31 @@ export interface GroupMemberBalance {
   paidForGroup: number;
   owesToOthersInGroup: number;
   netBalance: number;
+}
+
+export enum ActivityActionType {
+  GROUP_CREATED = "GROUP_CREATED",
+  GROUP_NAME_UPDATED = "GROUP_NAME_UPDATED",
+  MEMBER_ADDED = "MEMBER_ADDED",
+  MEMBER_REMOVED = "MEMBER_REMOVED",
+  MEMBER_LEFT = "MEMBER_LEFT",
+  GROUP_DELETED = "GROUP_DELETED",
+  EXPENSE_ADDED_TO_GROUP = "EXPENSE_ADDED_TO_GROUP",
+  EXPENSE_SPLIT_IN_GROUP = "EXPENSE_SPLIT_IN_GROUP",
+  SETTLEMENT_UPDATED_IN_GROUP = "SETTLEMENT_UPDATED_IN_GROUP",
+}
+
+export interface GroupActivityLogEntry {
+  id?: string;
+  actorId: string;
+  actorDisplayName: string;
+  actionType: ActivityActionType;
+  details: string;
+  timestamp: Timestamp; // Might need serialization
+  relatedMemberId?: string;
+  relatedMemberName?: string;
+  relatedExpenseId?: string;
+  relatedExpenseName?: string;
+  previousValue?: string;
+  newValue?: string;
 }

@@ -53,15 +53,27 @@ export default function FriendsPage() {
     setIsLoadingFriends(true);
     setIsLoadingRequests(true);
     try {
-      const profile = await getUserProfile(user.uid);
+      const profile = await getUserProfile(user.uid); // Fetches UserProfile with string createdAt
       setCurrentUserProfile(profile);
 
-      const [userFriends, userRequests] = await Promise.all([
+      const [userFriendsData, userRequestsData] = await Promise.all([
         getFriends(user.uid),
         getIncomingFriendRequests(user.uid),
       ]);
-      setFriends(userFriends);
-      setIncomingRequests(userRequests);
+
+      const serializedFriends = userFriendsData.map(f => ({
+        ...f,
+        addedAt: (f.addedAt as any).toDate ? (f.addedAt as any).toDate().toISOString() : f.addedAt,
+      }));
+      setFriends(serializedFriends as unknown as Friend[]);
+
+
+      const serializedRequests = userRequestsData.map(req => ({
+        ...req,
+        createdAt: (req.createdAt as any).toDate ? (req.createdAt as any).toDate().toISOString() : req.createdAt,
+      }));
+      setIncomingRequests(serializedRequests as unknown as FriendRequest[]);
+
     } catch (error) {
       console.error("Failed to fetch friends data:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load friends data." });
@@ -80,6 +92,7 @@ export default function FriendsPage() {
     if (!user || !currentUserProfile || !friendEmail.trim()) return;
     setIsSendingRequest(true);
     try {
+      // fromUserDisplayName can be undefined, which is fine for sendFriendRequest
       const result = await sendFriendRequest(user.uid, currentUserProfile.email, currentUserProfile.displayName, friendEmail);
       if (result.success) {
         toast({ title: "Friend Request Sent", description: result.message });
@@ -98,8 +111,9 @@ export default function FriendsPage() {
     if (!user || !currentUserProfile) return;
     setIsProcessingRequest(request.id);
 
-    const fromUserProfile = await getUserProfile(request.fromUserId);
-    const toUserProfile = currentUserProfile; // Current user is the one accepting
+    // getUserProfile now returns UserProfile with string createdAt
+    const fromUserProfile = await getUserProfile(request.fromUserId); 
+    const toUserProfile = currentUserProfile; 
 
     if (!fromUserProfile) {
         toast({ variant: "destructive", title: "Error", description: "Could not find sender's profile." });
@@ -108,9 +122,10 @@ export default function FriendsPage() {
     }
 
     try {
+      // acceptFriendRequest internally handles Timestamps for Firestore
       await acceptFriendRequest(request.id, fromUserProfile, toUserProfile);
       toast({ title: "Friend Added", description: `You are now friends with ${request.fromUserDisplayName || request.fromUserEmail}.` });
-      fetchInitialData(); // Refresh lists
+      fetchInitialData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Could not accept friend request." });
     } finally {
@@ -123,7 +138,7 @@ export default function FriendsPage() {
     try {
       await rejectFriendRequest(requestId);
       toast({ title: "Request Rejected" });
-      fetchInitialData(); // Refresh lists
+      fetchInitialData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Could not reject friend request." });
     } finally {
@@ -137,7 +152,7 @@ export default function FriendsPage() {
     try {
       await removeFriend(user.uid, friendUid);
       toast({ title: "Friend Removed" });
-      fetchInitialData(); // Refresh lists
+      fetchInitialData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Could not remove friend." });
     } finally {
@@ -148,7 +163,7 @@ export default function FriendsPage() {
   const getInitials = (name?: string, email?: string) => {
     if (name) {
       const parts = name.split(' ');
-      if (parts.length > 1) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      if (parts.length > 1 && parts[0] && parts[1]) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
       return name.substring(0,2).toUpperCase();
     }
     if (email) return email.substring(0,2).toUpperCase();
@@ -228,7 +243,7 @@ export default function FriendsPage() {
                     <div>
                       <p className="font-semibold text-sm">{req.fromUserDisplayName || req.fromUserEmail}</p>
                       <p className="text-xs text-muted-foreground">{req.fromUserEmail}</p>
-                      <p className="text-xs text-muted-foreground">Sent {formatDistanceToNow(req.createdAt.toDate(), { addSuffix: true })}</p>
+                      <p className="text-xs text-muted-foreground">Sent {formatDistanceToNow(new Date(req.createdAt as unknown as string), { addSuffix: true })}</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -288,6 +303,7 @@ export default function FriendsPage() {
                     </Avatar>
                     <p className="font-semibold text-md text-foreground">{friend.displayName || friend.email}</p>
                     <p className="text-xs text-muted-foreground">{friend.email}</p>
+                    {/* <p className="text-xs text-muted-foreground">Friends since: {format(new Date(friend.addedAt as unknown as string), "MMM dd, yyyy")}</p> */}
                     <div className="mt-3 flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => toast({ title: "Coming Soon", description: "Chat functionality is under development."})} disabled>
                         <MessageSquare className="mr-1.5 h-3.5 w-3.5" /> Chat
@@ -299,6 +315,7 @@ export default function FriendsPage() {
                         disabled={isRemovingFriend === friend.uid}
                         className="text-destructive hover:text-destructive/80"
                         title="Remove friend"
+                        aria-label={`Remove friend ${friend.displayName || friend.email}`}
                         >
                         {isRemovingFriend === friend.uid ? <Loader2 className="h-4 w-4 animate-spin"/> : <Trash2 className="h-4 w-4" />}
                          <span className="sr-only">Remove friend</span>
