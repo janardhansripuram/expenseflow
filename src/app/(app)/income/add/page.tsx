@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -36,7 +36,7 @@ const incomeSchema = z.object({
 export default function AddIncomePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { authUser, userProfile, loading: authLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<IncomeFormData>({
@@ -44,14 +44,24 @@ export default function AddIncomePage() {
     defaultValues: {
       source: "",
       amount: "",
-      currency: "USD",
+      currency: userProfile?.defaultCurrency || "USD",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
     },
   });
 
+  useEffect(() => {
+    if (userProfile && !authLoading) {
+      form.reset({
+        ...form.getValues(),
+        currency: userProfile.defaultCurrency || "USD",
+        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"),
+      });
+    }
+  }, [userProfile, authLoading, form]);
+
   async function onSubmit(values: IncomeFormData) {
-    if (!user) {
+    if (!authUser) {
       toast({
         variant: "destructive",
         title: "Authentication Error",
@@ -62,7 +72,7 @@ export default function AddIncomePage() {
     setIsSubmitting(true);
 
     try {
-      await addIncome(user.uid, values);
+      await addIncome(authUser.uid, values);
       toast({
         title: "Income Added",
         description: "Your income has been successfully recorded.",
@@ -70,7 +80,7 @@ export default function AddIncomePage() {
       form.reset({
         source: "",
         amount: "",
-        currency: "USD",
+        currency: userProfile?.defaultCurrency || "USD",
         date: format(new Date(), "yyyy-MM-dd"),
         notes: "",
       });
@@ -145,7 +155,7 @@ export default function AddIncomePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select currency" />
@@ -197,7 +207,7 @@ export default function AddIncomePage() {
                 <Button variant="outline" asChild type="button" disabled={isSubmitting}>
                   <Link href="/income">Cancel</Link>
                 </Button>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting || authLoading}>
                   {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Save Income
                 </Button>

@@ -405,15 +405,19 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
 export async function updateUserProfile(userId: string, data: Partial<Pick<UserProfile, 'displayName' | 'defaultCurrency'>>): Promise<void> {
   try {
     const userRef = doc(db, USERS_COLLECTION, userId);
-    const updateData: { [key: string]: any } = { ...data, updatedAt: Timestamp.now() };
+    const updateData: { [key: string]: any } = { updatedAt: Timestamp.now() };
     
-    // Ensure only allowed fields are updated
     const allowedUpdates: Partial<UserProfile> = {};
     if (data.displayName !== undefined) allowedUpdates.displayName = data.displayName;
     if (data.defaultCurrency !== undefined) allowedUpdates.defaultCurrency = data.defaultCurrency;
 
     if (Object.keys(allowedUpdates).length > 0) {
         await updateDoc(userRef, { ...allowedUpdates, updatedAt: Timestamp.now() });
+    } else {
+        // If only updatedAt is to be written, this prevents an empty update
+        // Firebase updateDoc with only updatedAt will work fine if the document exists
+        // This 'else' branch might not be strictly necessary unless we want to avoid even that.
+        // For now, if allowedUpdates is empty, we don't update, which is fine.
     }
   } catch (error) {
     console.error("Error updating user profile: ", error);

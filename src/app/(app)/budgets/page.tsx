@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, PlusCircle, Target, Edit, Trash2, Landmark, AlertTriangle } from "lucide-react";
+import { Loader2, PlusCircle, Target, Edit, Trash2, Landmark, AlertTriangle, Save } from "lucide-react"; // Added Save
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { addBudget, getBudgetsByUser, updateBudget, deleteBudget, getExpensesByUser } from "@/lib/firebase/firestore";
@@ -19,7 +19,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
-import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; // Renamed to avoid conflict
+import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; 
+import { cn } from "@/lib/utils";
 
 const budgetSchema = z.object({
   name: z.string().min(1, "Budget name is required").max(50, "Name too long"),
@@ -36,11 +37,11 @@ const budgetSchema = z.object({
 });
 
 export default function BudgetsPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]); // All user expenses
+  const [expenses, setExpenses] = useState<Expense[]>([]); 
   const [spentAmounts, setSpentAmounts] = useState<Record<string, { spent: number; hasOtherCurrencyExpenses: boolean }>>({});
   
   const [isBudgetDialogOpen, setIsBudgetDialogOpen] = useState(false);
@@ -54,18 +55,29 @@ export default function BudgetsPage() {
       name: "",
       category: "",
       amount: "",
-      currency: "USD",
+      currency: userProfile?.defaultCurrency || "USD",
       period: "monthly",
     },
   });
 
+  useEffect(() => {
+    if (userProfile && !authLoading && !editingBudget) { // Only set default for new budget
+      form.reset({
+        ...form.getValues(),
+        currency: userProfile.defaultCurrency || "USD",
+        period: "monthly", // Ensure period is reset if needed
+      });
+    }
+  }, [userProfile, authLoading, form, editingBudget]);
+
+
   const fetchBudgetData = useCallback(async () => {
-    if (user) {
+    if (authUser) {
       setIsLoading(true);
       try {
         const [userBudgets, userExpenses] = await Promise.all([
-          getBudgetsByUser(user.uid),
-          getExpensesByUser(user.uid)
+          getBudgetsByUser(authUser.uid),
+          getExpensesByUser(authUser.uid)
         ]);
         setBudgets(userBudgets);
         setExpenses(userExpenses);
@@ -79,7 +91,7 @@ export default function BudgetsPage() {
       setBudgets([]);
       setExpenses([]);
     }
-  }, [user, toast]);
+  }, [authUser, toast]);
 
   useEffect(() => {
     fetchBudgetData();
@@ -129,20 +141,20 @@ export default function BudgetsPage() {
         period: budget.period,
       });
     } else {
-      form.reset({ name: "", category: "", amount: "", currency: "USD", period: "monthly" });
+      form.reset({ name: "", category: "", amount: "", currency: userProfile?.defaultCurrency || "USD", period: "monthly" });
     }
     setIsBudgetDialogOpen(true);
   };
 
   const onSubmit = async (values: BudgetFormData) => {
-    if (!user) return;
+    if (!authUser) return;
     setIsSubmitting(true);
     try {
       if (editingBudget && editingBudget.id) {
         await updateBudget(editingBudget.id, values);
         toast({ title: "Budget Updated", description: "Your budget has been successfully updated." });
       } else {
-        await addBudget(user.uid, values);
+        await addBudget(authUser.uid, values);
         toast({ title: "Budget Created", description: "Your new budget has been set." });
       }
       fetchBudgetData();
@@ -184,7 +196,7 @@ export default function BudgetsPage() {
   };
 
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -400,7 +412,7 @@ export default function BudgetsPage() {
               />
               <DialogFooter className="pt-2">
                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting || authLoading}>
                   {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4"/>}
                   {editingBudget ? "Save Changes" : "Create Budget"}
                 </Button>
@@ -412,4 +424,3 @@ export default function BudgetsPage() {
     </div>
   );
 }
-

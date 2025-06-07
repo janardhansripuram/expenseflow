@@ -10,14 +10,16 @@ import { ThemeToggle } from "@/components/core/ThemeToggle";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { getUserProfile, updateUserProfile } from '@/lib/firebase/firestore';
+import { updateUserProfile } from '@/lib/firebase/firestore'; // getUserProfile removed as it's now in AuthProvider
 import { updateProfile as updateAuthProfile, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
-import type { UserProfile } from '@/lib/types';
-import { Loader2, Save, ShieldAlert, Trash2, KeyRound } from 'lucide-react';
+import type { UserProfile, CurrencyCode } from '@/lib/types';
+import { SUPPORTED_CURRENCIES } from '@/lib/types';
+import { Loader2, Save, ShieldAlert, Trash2, KeyRound, Landmark } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -43,6 +45,9 @@ import { useRouter } from 'next/navigation';
 const profileSchema = z.object({
   displayName: z.string().min(2, "Display name must be at least 2 characters.").max(50, "Display name must be 50 characters or less."),
   email: z.string().email().optional(), 
+  defaultCurrency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), {
+    message: "Invalid currency selected",
+  }).optional(),
 });
 type ProfileFormData = z.infer<typeof profileSchema>;
 
@@ -63,13 +68,11 @@ type ReAuthFormData = z.infer<typeof reAuthSchema>;
 
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile, loading: authLoading } = useAuth(); // Use authUser and userProfile
   const { toast } = useToast();
   const router = useRouter();
 
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [userProfileData, setUserProfileData] = useState<UserProfile | null>(null);
 
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -81,7 +84,7 @@ export default function SettingsPage() {
 
   const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    defaultValues: { displayName: "", email: "" },
+    defaultValues: { displayName: "", email: "", defaultCurrency: "USD" },
   });
 
   const changePasswordForm = useForm<ChangePasswordFormData>({
@@ -96,42 +99,49 @@ export default function SettingsPage() {
 
 
   useEffect(() => {
-    async function fetchProfile() {
-      if (user) {
-        setIsLoadingProfile(true);
-        try {
-          const profile = await getUserProfile(user.uid);
-          if (profile) {
-            setUserProfileData(profile);
-            profileForm.reset({
-              displayName: profile.displayName || '',
-              email: profile.email,
-            });
-          }
-        } catch (error) {
-          console.error("Failed to fetch user profile:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not load your profile." });
-        } finally {
-          setIsLoadingProfile(false);
-        }
-      }
+    if (userProfile) {
+        profileForm.reset({
+            displayName: userProfile.displayName || '',
+            email: userProfile.email,
+            defaultCurrency: userProfile.defaultCurrency || 'USD',
+        });
+    } else if (authUser && !userProfile && !authLoading) {
+        // Auth user exists, but profile might still be loading or failed to load
+        // Reset with authUser's email if available, and a sensible default for displayName
+        profileForm.reset({
+            displayName: authUser.displayName || authUser.email?.split('@')[0] || '',
+            email: authUser.email || '',
+            defaultCurrency: 'USD',
+        });
     }
-    fetchProfile();
-  }, [user, profileForm, toast]);
+  }, [userProfile, authUser, authLoading, profileForm]);
+
 
   async function onProfileSubmit(values: ProfileFormData) {
-    if (!user || !userProfileData) {
-      toast({ variant: "destructive", title: "Error", description: "User not found." });
+    if (!authUser) {
+      toast({ variant: "destructive", title: "Error", description: "User not authenticated." });
       return;
     }
     setIsSavingProfile(true);
     try {
-      await updateUserProfile(user.uid, { displayName: values.displayName });
-      if (auth.currentUser) {
-        await updateAuthProfile(auth.currentUser, { displayName: values.displayName });
+      const updateData: Partial<Pick<UserProfile, 'displayName' | 'defaultCurrency'>> = {};
+      if (values.displayName !== userProfile?.displayName) {
+        updateData.displayName = values.displayName;
       }
-      toast({ title: "Profile Updated", description: "Your display name has been updated." });
-      setUserProfileData(prev => prev ? { ...prev, displayName: values.displayName } : null);
+      if (values.defaultCurrency && values.defaultCurrency !== userProfile?.defaultCurrency) {
+        updateData.defaultCurrency = values.defaultCurrency;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await updateUserProfile(authUser.uid, updateData);
+        if (updateData.displayName && auth.currentUser) {
+          await updateAuthProfile(auth.currentUser, { displayName: values.displayName });
+        }
+        toast({ title: "Profile Updated", description: "Your profile settings have been saved." });
+        // AuthProvider will refetch the profile, so no manual state update needed here for userProfile
+      } else {
+        toast({ title: "No Changes", description: "No changes were made to your profile." });
+      }
     } catch (error) {
       console.error("Failed to update profile:", error);
       toast({ variant: "destructive", title: "Update Failed", description: "Could not update your profile." });
@@ -141,15 +151,15 @@ export default function SettingsPage() {
   }
 
   async function onChangePasswordSubmit(values: ChangePasswordFormData) {
-    if (!user || !user.email) {
+    if (!authUser || !authUser.email) {
         toast({ variant: "destructive", title: "Error", description: "User not found or email missing."});
         return;
     }
     setIsChangingPassword(true);
     try {
-        const credential = EmailAuthProvider.credential(user.email, values.currentPassword);
-        await reauthenticateWithCredential(user, credential);
-        await updatePassword(user, values.newPassword);
+        const credential = EmailAuthProvider.credential(authUser.email, values.currentPassword);
+        await reauthenticateWithCredential(authUser, credential);
+        await updatePassword(authUser, values.newPassword);
         toast({ title: "Password Changed", description: "Your password has been successfully updated." });
         setIsChangePasswordOpen(false);
         changePasswordForm.reset();
@@ -168,14 +178,14 @@ export default function SettingsPage() {
   }
 
   async function onDeleteAccountReAuthSubmit(values: ReAuthFormData) {
-    if (!user || !user.email) {
+    if (!authUser || !authUser.email) {
       toast({ variant: "destructive", title: "Error", description: "User not found or email missing." });
       return;
     }
     setIsDeletingAccount(true);
     try {
-      const credential = EmailAuthProvider.credential(user.email, values.password);
-      await reauthenticateWithCredential(user, credential);
+      const credential = EmailAuthProvider.credential(authUser.email, values.password);
+      await reauthenticateWithCredential(authUser, credential);
       setIsDeleteAccountReAuthOpen(false); // Close re-auth dialog
       reAuthForm.reset();
       setIsDeleteAccountConfirmOpen(true); // Open final confirmation dialog
@@ -194,10 +204,10 @@ export default function SettingsPage() {
   }
 
   async function confirmDeleteAccount() {
-    if (!user) return;
+    if (!authUser) return;
     setIsDeletingAccount(true);
     try {
-        await deleteUser(user);
+        await deleteUser(authUser);
         toast({ title: "Account Deleted", description: "Your account has been permanently deleted." });
         router.push("/login"); // Redirect to login or home page
     } catch (error: any) {
@@ -206,7 +216,6 @@ export default function SettingsPage() {
         setIsDeletingAccount(false);
     } finally {
         setIsDeleteAccountConfirmOpen(false);
-        // No need to setIsDeletingAccount(false) here if redirecting
     }
   }
 
@@ -241,14 +250,14 @@ export default function SettingsPage() {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="font-headline">Profile</CardTitle>
-          <CardDescription>Update your personal information.</CardDescription>
+          <CardDescription>Update your personal information and preferences.</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingProfile ? (
+          {authLoading ? (
             <div className="flex justify-center items-center py-6">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : userProfileData ? (
+          ) : (
             <Form {...profileForm}>
               <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-6">
                 <FormField
@@ -273,7 +282,32 @@ export default function SettingsPage() {
                       <FormControl>
                         <Input type="email" {...field} disabled />
                       </FormControl>
-                      <p className="text-xs text-muted-foreground">Email address cannot be changed.</p>
+                      <FormDescription>Email address cannot be changed.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <FormField
+                  control={profileForm.control}
+                  name="defaultCurrency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground"/> Default Currency</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || 'USD'}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select your default currency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SUPPORTED_CURRENCIES.map(curr => (
+                            <SelectItem key={curr.code} value={curr.code}>
+                              {curr.code} - {curr.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>This will be the default currency for new expenses, income, and budgets.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -286,8 +320,6 @@ export default function SettingsPage() {
                 </CardFooter>
               </form>
             </Form>
-          ) : (
-            <p className="text-muted-foreground">Could not load profile data.</p>
           )}
         </CardContent>
       </Card>

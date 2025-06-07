@@ -36,7 +36,7 @@ const expenseSchema = z.object({
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
     message: "Amount must be a positive number",
   }),
-  currency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), { // Add currency validation
+  currency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), { 
     message: "Invalid currency selected",
   }),
   category: z.string().min(1, "Category is required"),
@@ -52,7 +52,7 @@ type ExtendedExpenseFormData = ExpenseFormData & { merchantName?: string };
 export default function ScanReceiptPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { authUser, userProfile, loading: authLoading } = useAuth();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -70,7 +70,7 @@ export default function ScanReceiptPage() {
     defaultValues: {
       description: "",
       amount: "",
-      currency: "USD", // Default currency
+      currency: userProfile?.defaultCurrency || "USD", 
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       merchantName: "",
@@ -78,11 +78,21 @@ export default function ScanReceiptPage() {
     },
   });
 
+  useEffect(() => {
+    if (userProfile && !authLoading) {
+      form.reset({
+        ...form.getValues(),
+        currency: userProfile.defaultCurrency || "USD",
+        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"),
+      });
+    }
+  }, [userProfile, authLoading, form]);
+
   const resetFormAndState = useCallback(() => {
     form.reset({
       description: "",
       amount: "",
-      currency: "USD", // Reset currency
+      currency: userProfile?.defaultCurrency || "USD", 
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       merchantName: "",
@@ -95,7 +105,7 @@ export default function ScanReceiptPage() {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
-  }, [form]);
+  }, [form, userProfile]);
   
   useEffect(() => {
     return () => { 
@@ -112,7 +122,7 @@ export default function ScanReceiptPage() {
       reader.onloadend = () => {
         setSelectedImageUri(reader.result as string);
         setExtractedData(null); 
-        form.reset({ currency: form.getValues("currency") || "USD" }); // Keep selected/default currency
+        form.reset({ currency: userProfile?.defaultCurrency || "USD", date: format(new Date(), "yyyy-MM-dd") }); 
         setIsCameraMode(false); 
         if (videoRef.current && videoRef.current.srcObject) {
           (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
@@ -162,7 +172,7 @@ export default function ScanReceiptPage() {
         const dataUri = canvas.toDataURL("image/jpeg");
         setSelectedImageUri(dataUri);
         setExtractedData(null);
-        form.reset({ currency: form.getValues("currency") || "USD" }); // Keep selected/default currency
+        form.reset({ currency: userProfile?.defaultCurrency || "USD", date: format(new Date(), "yyyy-MM-dd") });
       }
       if (video.srcObject) {
         (video.srcObject as MediaStream).getTracks().forEach(track => track.stop());
@@ -177,26 +187,25 @@ export default function ScanReceiptPage() {
       toast({ title: "No Image", description: "Please select or capture an image first.", variant: "destructive" });
       return;
     }
-    if (!user) {
+    if (!authUser) {
       toast({ title: "Not Authenticated", description: "Please log in to extract details.", variant: "destructive" });
       return;
     }
 
     setIsExtracting(true);
     setExtractedData(null); 
-    const currentCurrency = form.getValues("currency"); // Preserve currency selection
-    form.reset({ currency: currentCurrency }); 
+    const currentCurrency = form.getValues("currency") || userProfile?.defaultCurrency || "USD"; 
+    form.reset({ currency: currentCurrency, date: format(new Date(), "yyyy-MM-dd") }); 
 
     try {
       const result = await extractExpenseFromReceipt({ photoDataUri: selectedImageUri });
       setExtractedData(result);
       form.setValue("description", result.description || "");
       form.setValue("amount", result.amount ? String(result.amount) : "");
-      form.setValue("category", result.category || "other"); // Default to 'other' if not extracted
+      form.setValue("category", result.category || "other"); 
       form.setValue("date", result.date || format(new Date(), "yyyy-MM-dd"));
       form.setValue("merchantName", result.merchantName || "");
-      // Currency is not extracted by OCR, user needs to confirm/select it.
-      // form.setValue("currency", currentCurrency); // Already set by reset or default
+      form.setValue("currency", currentCurrency); 
       toast({ title: "Details Extracted", description: "Review and save the expense. Confirm currency.", });
     } catch (error) {
       console.error("Failed to extract details:", error);
@@ -211,7 +220,7 @@ export default function ScanReceiptPage() {
   };
 
   async function onSubmit(values: ExtendedExpenseFormData) {
-    if (!user) {
+    if (!authUser || !userProfile) {
       toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in to add an expense." });
       return;
     }
@@ -220,12 +229,12 @@ export default function ScanReceiptPage() {
       const expenseDataToSave: ExpenseFormData = {
         description: values.description,
         amount: values.amount,
-        currency: values.currency, // Pass currency
+        currency: values.currency, 
         category: values.category,
         date: values.date,
         notes: `${values.merchantName ? `Merchant: ${values.merchantName}. ` : ''}${values.notes || ''}`.trim(),
       };
-      await addExpense(user.uid, expenseDataToSave);
+      await addExpense(authUser.uid, expenseDataToSave, userProfile);
       toast({
         title: "Expense Added",
         description: "Your expense has been successfully recorded from the receipt.",
@@ -380,7 +389,7 @@ export default function ScanReceiptPage() {
                     render={({ field }) => (
                         <FormItem>
                         <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value} defaultValue="USD">
+                        <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                             <SelectTrigger>
                                 <SelectValue placeholder="Select currency" />
@@ -462,7 +471,7 @@ export default function ScanReceiptPage() {
                    <Button variant="outline" type="button" onClick={resetFormAndState}>
                       Clear / Scan Another
                   </Button>
-                  <Button type="submit" disabled={isSubmitting || isExtracting}>
+                  <Button type="submit" disabled={isSubmitting || isExtracting || authLoading}>
                     {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Expense
                   </Button>

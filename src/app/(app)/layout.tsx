@@ -72,8 +72,6 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
     if (item.href === pathname && !item.submenu) return item.title;
     if (pathname.startsWith(item.href) && item.submenu) {
         for (const subItem of item.submenu) {
-             // Specific title for Add Reminder if it's a direct match to a submenu item href
-            if (subItem.href === pathname && pathname === '/reminders/add') return 'Add Reminder';
             if (subItem.href === pathname) return item.title; 
         }
         // Fallback for dynamic child routes not explicitly in submenu
@@ -82,9 +80,7 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
             if (pathname.startsWith('/income/edit/')) return 'Edit Income';
             if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
             if (pathname.startsWith('/split/edit/')) return 'Edit Split';
-            // If it's /reminders/add and wasn't caught above, it means it's not explicitly defined in submenu href
-            // but we still want specific title. (This condition might be redundant if /reminders/add is always in submenu)
-            if (pathname === '/reminders/add') return 'Add Reminder';
+            if (pathname === '/reminders/add') return 'Add Reminder'; // Specific check
             return item.title; 
         }
         if (item.href === pathname) return item.title;
@@ -99,7 +95,7 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
   // Handle specific static routes that might be top-level or missed
   if (pathname === '/expenses/scan') return 'Scan Receipt';
   if (pathname === '/income/add') return 'Add Income';
-  if (pathname === '/reminders/add') return 'Add Reminder'; // Ensure this is caught
+  if (pathname === '/reminders/add') return 'Add Reminder'; 
   if (pathname === '/debts') return 'Debts';
   if (pathname === '/budgets') return 'Budgets';
 
@@ -110,17 +106,17 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
 
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { authUser, loading } = useAuth(); // Use authUser
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [pageTitle, setPageTitle] = React.useState('ExpenseFlow');
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !authUser) { // Check authUser
       router.replace('/login');
     }
-  }, [user, loading, router]);
+  }, [authUser, loading, router]); // Depend on authUser
 
   useEffect(() => {
     setPageTitle(getPageTitle(pathname, navItems));
@@ -135,7 +131,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!authUser) { // Check authUser
     return null;
   }
 

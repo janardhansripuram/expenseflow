@@ -95,7 +95,7 @@ export default function AddExpensePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { authUser, userProfile, loading: authLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userGroups, setUserGroups] = useState<Group[]>([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(true);
@@ -105,7 +105,7 @@ export default function AddExpensePage() {
     defaultValues: {
       description: "",
       amount: "",
-      currency: "USD",
+      currency: userProfile?.defaultCurrency || "USD",
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
@@ -117,15 +117,26 @@ export default function AddExpensePage() {
     },
   });
 
+  useEffect(() => {
+    if (userProfile && !authLoading) {
+      form.reset({
+        ...form.getValues(), // Preserve existing form values if any
+        currency: userProfile.defaultCurrency || "USD",
+        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"), // Ensure date is initialized
+      });
+    }
+  }, [userProfile, authLoading, form]);
+
+
   const isRecurringWatch = form.watch("isRecurring");
   const recurrenceWatch = form.watch("recurrence");
 
   useEffect(() => {
     async function fetchGroups() {
-      if (user) {
+      if (authUser) {
         setIsLoadingGroups(true);
         try {
-          const groups = await getGroupsForUser(user.uid);
+          const groups = await getGroupsForUser(authUser.uid);
           setUserGroups(groups);
         } catch (error) {
           console.error("Failed to fetch user groups:", error);
@@ -140,7 +151,7 @@ export default function AddExpensePage() {
       }
     }
     fetchGroups();
-  }, [user, toast]);
+  }, [authUser, toast]);
 
   useEffect(() => {
     const groupIdFromParams = searchParams.get("groupId");
@@ -154,7 +165,7 @@ export default function AddExpensePage() {
 
 
   async function onSubmit(values: ExpenseFormData) {
-    if (!user) {
+    if (!authUser || !userProfile) {
       toast({
         variant: "destructive",
         title: "Authentication Error",
@@ -191,7 +202,7 @@ export default function AddExpensePage() {
 
 
     try {
-      await addExpense(user.uid, dataToSave);
+      await addExpense(authUser.uid, dataToSave, userProfile);
       toast({
         title: "Expense Added",
         description: "Your expense has been successfully recorded.",
@@ -199,7 +210,7 @@ export default function AddExpensePage() {
       form.reset({
           description: "",
           amount: "",
-          currency: "USD",
+          currency: userProfile?.defaultCurrency || "USD",
           category: "",
           date: format(new Date(), "yyyy-MM-dd"),
           notes: "",
@@ -278,7 +289,7 @@ export default function AddExpensePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select currency" />
@@ -495,7 +506,7 @@ export default function AddExpensePage() {
                   <Button variant="outline" asChild type="button">
                       <Link href="/expenses">Cancel</Link>
                   </Button>
-                  <Button type="submit" disabled={isSubmitting}>
+                  <Button type="submit" disabled={isSubmitting || authLoading}>
                       {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                       Save Expense
                   </Button>

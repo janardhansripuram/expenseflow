@@ -19,30 +19,26 @@ const PageLoader = ({ message }: { message: string }) => (
 );
 
 export default function HomePage() {
-  const { user, loading } = useAuth();
+  const { authUser, loading } = useAuth(); // Use authUser
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading) { // Only perform actions once the loading state is false
-      if (user) {
-        router.prefetch('/dashboard'); // Prefetch if user is logged in
-        router.replace('/dashboard'); // Redirect to dashboard if user is logged in
+    if (!loading) { 
+      if (authUser) { // Check authUser
+        router.prefetch('/dashboard'); 
+        router.replace('/dashboard'); 
       }
-      // If !user, this effect does nothing, and the component will render the landing page.
     }
-  }, [user, loading, router]);
+  }, [authUser, loading, router]); // Depend on authUser
 
   if (loading) {
     return <PageLoader message="Loading ExpenseFlow..." />;
   }
 
-  // If user is logged in (and not loading), they are about to be redirected by the useEffect.
-  // Show a loader during this brief period.
-  if (user) {
+  if (authUser) { // Check authUser
      return <PageLoader message="Redirecting to your dashboard..." />;
   }
 
-  // If not loading and no user, show the landing page content.
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <LandingNavbar />

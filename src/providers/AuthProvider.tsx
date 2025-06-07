@@ -1,11 +1,14 @@
+
 "use client";
 
 import React, { createContext, useEffect, useState, ReactNode } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
+import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
+import { getUserProfile, type UserProfile } from '@/lib/firebase/firestore';
 
 export interface AuthContextType {
-  user: User | null;
+  authUser: FirebaseUser | null;
+  userProfile: UserProfile | null;
   loading: boolean;
 }
 
@@ -16,12 +19,26 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (currentAuthUser) => {
+      setLoading(true);
+      if (currentAuthUser) {
+        setAuthUser(currentAuthUser);
+        try {
+          const profile = await getUserProfile(currentAuthUser.uid);
+          setUserProfile(profile);
+        } catch (error) {
+          console.error("Failed to fetch user profile:", error);
+          setUserProfile(null); // Ensure profile is reset on error
+        }
+      } else {
+        setAuthUser(null);
+        setUserProfile(null);
+      }
       setLoading(false);
     });
 
@@ -29,7 +46,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={{ authUser, userProfile, loading }}>
       {children}
     </AuthContext.Provider>
   );

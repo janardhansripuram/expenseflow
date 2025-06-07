@@ -1,3 +1,4 @@
+
 "use client";
 
 import { signOut } from "firebase/auth";
@@ -19,7 +20,7 @@ import { LogOut, Settings, UserCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export function UserNav() {
-  const { user } = useAuth();
+  const { authUser, userProfile } = useAuth(); // Use authUser and userProfile
   const router = useRouter();
   const { toast } = useToast();
 
@@ -33,17 +34,20 @@ export function UserNav() {
     }
   };
 
-  if (!user) return null;
+  if (!authUser) return null;
 
-  const userInitials = user.email ? user.email.substring(0, 2).toUpperCase() : "U";
+  const displayName = userProfile?.displayName || authUser.displayName || "User";
+  const email = userProfile?.email || authUser.email || "No email";
+  const initials = displayName.substring(0, 2).toUpperCase() || (email ? email.substring(0,2).toUpperCase() : "U");
+
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-9 w-9 rounded-full">
           <Avatar className="h-9 w-9">
-            <AvatarImage src={user.photoURL || undefined} alt={user.displayName || user.email || "User"} />
-            <AvatarFallback>{userInitials}</AvatarFallback>
+            <AvatarImage src={authUser.photoURL || undefined} alt={displayName} />
+            <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
@@ -51,10 +55,10 @@ export function UserNav() {
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none font-headline">
-              {user.displayName || "User"}
+              {displayName}
             </p>
             <p className="text-xs leading-none text-muted-foreground">
-              {user.email}
+              {email}
             </p>
           </div>
         </DropdownMenuLabel>
