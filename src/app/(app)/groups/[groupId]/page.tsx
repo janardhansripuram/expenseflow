@@ -32,12 +32,13 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile } from "@/lib/firebase/firestore";
-import type { Group, Friend, UserProfile, GroupMemberDetail } from "@/lib/types";
+import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId } from "@/lib/firebase/firestore";
+import type { Group, Friend, UserProfile, GroupMemberDetail, Expense } from "@/lib/types";
 import Image from "next/image";
+import { format } from "date-fns";
 
 export default function GroupDetailsPage() {
   const { user } = useAuth();
@@ -49,8 +50,10 @@ export default function GroupDetailsPage() {
   const [group, setGroup] = useState<Group | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [groupExpenses, setGroupExpenses] = useState<Expense[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null); // memberId being added/removed
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<Record<string, boolean>>({});
@@ -58,11 +61,13 @@ export default function GroupDetailsPage() {
   const fetchGroupData = useCallback(async () => {
     if (!user || !groupId) return;
     setIsLoading(true);
+    setIsLoadingExpenses(true);
     try {
-      const [groupData, userFriends, profile] = await Promise.all([
+      const [groupData, userFriends, profile, expensesForGroup] = await Promise.all([
         getGroupDetails(groupId),
         getFriends(user.uid),
-        getUserProfile(user.uid)
+        getUserProfile(user.uid),
+        getExpensesByGroupId(groupId)
       ]);
 
       if (!groupData) {
@@ -79,12 +84,14 @@ export default function GroupDetailsPage() {
       setGroup(groupData);
       setFriends(userFriends);
       setCurrentUserProfile(profile);
+      setGroupExpenses(expensesForGroup);
 
     } catch (error) {
       console.error("Failed to fetch group details:", error);
-      toast({ variant: "destructive", title: "Error", description: "Could not load group details." });
+      toast({ variant: "destructive", title: "Error", description: "Could not load group details or expenses." });
     } finally {
       setIsLoading(false);
+      setIsLoadingExpenses(false);
     }
   }, [user, groupId, toast, router]);
 
@@ -151,7 +158,6 @@ export default function GroupDetailsPage() {
       await removeMemberFromGroup(groupId, memberIdToRemove);
       toast({ title: "Member Removed", description: "The member has been removed from the group." });
       
-      // If the current user removed themselves or the group was deleted (last member removed)
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
         router.push("/groups");
       } else {
@@ -173,6 +179,10 @@ export default function GroupDetailsPage() {
     if (email) return email.substring(0,2).toUpperCase();
     return '??';
   }
+  
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  };
 
   const friendsNotInGroup = friends.filter(friend => !group?.memberIds.includes(friend.uid));
   const creatorDetails = group?.memberDetails.find(m => m.uid === group.createdBy);
@@ -219,166 +229,218 @@ export default function GroupDetailsPage() {
         </div>
       </div>
 
-      <Card className="shadow-lg">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="font-headline flex items-center"><Users className="mr-2 h-5 w-5"/>Group Members</CardTitle>
-            <CardDescription>Manage who is part of this group.</CardDescription>
-          </div>
-           {isCurrentUserCreator && (
-            <Dialog open={isAddMembersDialogOpen} onOpenChange={setIsAddMembersDialogOpen}>
-                <DialogTrigger asChild>
-                    <Button size="sm">
-                    <UserPlus className="mr-2 h-4 w-4" /> Add Members
-                    </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                    <DialogTitle>Add Members to {group.name}</DialogTitle>
-                    <DialogDescription>
-                        Select friends to add to this group.
-                    </DialogDescription>
-                    </DialogHeader>
-                    {friendsNotInGroup.length > 0 ? (
-                    <ScrollArea className="h-60 mt-2 rounded-md border p-2">
-                        {friendsNotInGroup.map((friend) => (
-                        <div key={friend.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
-                            <Label htmlFor={`friend-add-${friend.uid}`} className="flex items-center gap-2 cursor-pointer">
-                            <Image 
-                                src={`https://placehold.co/40x40.png?text=${getInitials(friend.displayName, friend.email)}`} 
-                                alt={friend.displayName || friend.email} 
-                                width={32} 
-                                height={32} 
-                                className="rounded-full"
-                                data-ai-hint="person avatar"
-                            />
-                            <span>{friend.displayName || friend.email}</span>
-                            </Label>
-                            <Checkbox
-                            id={`friend-add-${friend.uid}`}
-                            checked={!!selectedFriendsToAdd[friend.uid]}
-                            onCheckedChange={() => handleToggleFriendSelection(friend.uid)}
-                            />
-                        </div>
-                        ))}
-                    </ScrollArea>
-                    ) : (
-                    <p className="text-sm text-muted-foreground mt-2">All your friends are already in this group or you have no friends to add.</p>
-                    )}
-                    <DialogFooter className="pt-2">
-                    <DialogClose asChild>
-                        <Button type="button" variant="outline">Cancel</Button>
-                    </DialogClose>
-                    <Button onClick={handleAddMembers} disabled={isProcessingMember === "adding" || Object.values(selectedFriendsToAdd).every(v => !v)}>
-                        {isProcessingMember === "adding" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
-                        Add Selected Members
-                    </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-           )}
-        </CardHeader>
-        <CardContent>
-          {group.memberDetails.length > 0 ? (
-            <div className="space-y-3">
-              {group.memberDetails.map((member) => (
-                <div key={member.uid} className="flex items-center justify-between p-3 rounded-md border bg-card hover:bg-muted/50">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(member.displayName, member.email)}`} alt={member.displayName || member.email} data-ai-hint="person avatar"/>
-                      <AvatarFallback>{getInitials(member.displayName, member.email)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-semibold text-sm">{member.displayName || member.email}
-                        {member.uid === group.createdBy && <span className="ml-2 text-xs text-primary font-medium">(Creator)</span>}
-                        {member.uid === user?.uid && <span className="ml-2 text-xs text-accent font-medium">(You)</span>}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{member.email}</p>
-                    </div>
-                  </div>
-                  {/* Allow removing other members if current user is creator, or allow current user to leave */}
-                  {(isCurrentUserCreator && member.uid !== user?.uid) || (member.uid === user?.uid && group.memberIds.length > 1) ? (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="text-destructive hover:text-destructive/80"
-                            disabled={isProcessingMember === member.uid}
-                        >
-                          {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                           <span className="ml-1.5 hidden sm:inline">{member.uid === user?.uid ? "Leave Group" : "Remove"}</span>
+      <div className="grid md:grid-cols-3 gap-6">
+        <Card className="shadow-lg md:col-span-1">
+            <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+                <CardTitle className="font-headline flex items-center"><Users className="mr-2 h-5 w-5"/>Group Members</CardTitle>
+                <CardDescription>Manage who is part of this group.</CardDescription>
+            </div>
+            {isCurrentUserCreator && (
+                <Dialog open={isAddMembersDialogOpen} onOpenChange={setIsAddMembersDialogOpen}>
+                    <DialogTrigger asChild>
+                        <Button size="sm" variant="outline">
+                        <UserPlus className="mr-2 h-4 w-4" /> Add
                         </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {member.uid === user?.uid ? "You are about to leave this group." : `This will remove ${member.displayName || member.email} from the group.`}
-                            {group.memberIds.length === 1 && member.uid === group.createdBy ? " Removing the last member (creator) will delete the group." : ""}
-                            This action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleRemoveMember(member.uid)} className="bg-destructive hover:bg-destructive/90">
-                            {isProcessingMember === member.uid ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (member.uid === user?.uid ? "Leave Group" : "Remove Member")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  ): (member.uid === user?.uid && group.memberIds.length === 1 && isCurrentUserCreator && ( // Case: Creator is the only member.
-                     <AlertDialog>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                        <DialogTitle>Add Members to {group.name}</DialogTitle>
+                        <DialogDescription>
+                            Select friends to add to this group.
+                        </DialogDescription>
+                        </DialogHeader>
+                        {friendsNotInGroup.length > 0 ? (
+                        <ScrollArea className="h-60 mt-2 rounded-md border p-2">
+                            {friendsNotInGroup.map((friend) => (
+                            <div key={friend.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
+                                <Label htmlFor={`friend-add-${friend.uid}`} className="flex items-center gap-2 cursor-pointer">
+                                <Image 
+                                    src={`https://placehold.co/40x40.png?text=${getInitials(friend.displayName, friend.email)}`} 
+                                    alt={friend.displayName || friend.email} 
+                                    width={32} 
+                                    height={32} 
+                                    className="rounded-full"
+                                    data-ai-hint="person avatar"
+                                />
+                                <span>{friend.displayName || friend.email}</span>
+                                </Label>
+                                <Checkbox
+                                id={`friend-add-${friend.uid}`}
+                                checked={!!selectedFriendsToAdd[friend.uid]}
+                                onCheckedChange={() => handleToggleFriendSelection(friend.uid)}
+                                />
+                            </div>
+                            ))}
+                        </ScrollArea>
+                        ) : (
+                        <p className="text-sm text-muted-foreground mt-2">All your friends are already in this group or you have no friends to add.</p>
+                        )}
+                        <DialogFooter className="pt-2">
+                        <DialogClose asChild>
+                            <Button type="button" variant="outline">Cancel</Button>
+                        </DialogClose>
+                        <Button onClick={handleAddMembers} disabled={isProcessingMember === "adding" || Object.values(selectedFriendsToAdd).every(v => !v)}>
+                            {isProcessingMember === "adding" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
+                            Add Selected Members
+                        </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
+            </CardHeader>
+            <CardContent>
+            {group.memberDetails.length > 0 ? (
+                <ScrollArea className="h-80">
+                <div className="space-y-3 pr-2">
+                {group.memberDetails.map((member) => (
+                    <div key={member.uid} className="flex items-center justify-between p-3 rounded-md border bg-card hover:bg-muted/50">
+                    <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10">
+                        <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(member.displayName, member.email)}`} alt={member.displayName || member.email} data-ai-hint="person avatar"/>
+                        <AvatarFallback>{getInitials(member.displayName, member.email)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                        <p className="font-semibold text-sm">{member.displayName || member.email}
+                            {member.uid === group.createdBy && <span className="ml-2 text-xs text-primary font-medium">(Creator)</span>}
+                            {member.uid === user?.uid && <span className="ml-2 text-xs text-accent font-medium">(You)</span>}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{member.email}</p>
+                        </div>
+                    </div>
+                    {(isCurrentUserCreator && member.uid !== user?.uid) || (member.uid === user?.uid && group.memberIds.length > 1) ? (
+                        <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/80" disabled={isProcessingMember === member.uid}>
-                                {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                                <span className="ml-1.5 hidden sm:inline">Delete Group</span>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-destructive hover:text-destructive/80"
+                                disabled={isProcessingMember === member.uid}
+                            >
+                            {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                            <span className="ml-1.5 hidden sm:inline">{member.uid === user?.uid ? "Leave" : "Remove"}</span>
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                             <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Group?</AlertDialogTitle>
+                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                             <AlertDialogDescription>
-                                You are the only member and the creator. Removing yourself will delete the group. This action cannot be undone.
+                                {member.uid === user?.uid ? "You are about to leave this group." : `This will remove ${member.displayName || member.email} from the group.`}
+                                {group.memberIds.length === 1 && member.uid === group.createdBy ? " Removing the last member (creator) will delete the group." : ""}
+                                This action cannot be undone.
                             </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => handleRemoveMember(member.uid)} className="bg-destructive hover:bg-destructive/90">
-                                Delete Group
+                                {isProcessingMember === member.uid ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (member.uid === user?.uid ? "Leave Group" : "Remove Member")}
                             </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>
-                    </AlertDialog>
-                  ))
-                  }
+                        </AlertDialog>
+                    ): (member.uid === user?.uid && group.memberIds.length === 1 && isCurrentUserCreator && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/80" disabled={isProcessingMember === member.uid}>
+                                    {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                    <span className="ml-1.5 hidden sm:inline">Delete Group</span>
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Group?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    You are the only member and the creator. Removing yourself will delete the group. This action cannot be undone.
+                                </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleRemoveMember(member.uid)} className="bg-destructive hover:bg-destructive/90">
+                                    Delete Group
+                                </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    ))
+                    }
+                    </div>
+                ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-center py-4">This group has no members.</p>
-          )}
-        </CardContent>
-      </Card>
+                </ScrollArea>
+            ) : (
+                <p className="text-muted-foreground text-center py-4">This group has no members.</p>
+            )}
+            </CardContent>
+        </Card>
+
+        <Card className="shadow-lg md:col-span-2">
+            <CardHeader>
+                <CardTitle className="font-headline flex items-center"><CircleDollarSign className="mr-2 h-5 w-5"/>Group Expenses</CardTitle>
+                <CardDescription>Expenses associated with {group.name}.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {isLoadingExpenses ? (
+                    <div className="flex items-center justify-center py-10">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="ml-2">Loading expenses...</p>
+                    </div>
+                ) : groupExpenses.length > 0 ? (
+                    <ScrollArea className="h-80">
+                    <div className="space-y-3 pr-2">
+                        {groupExpenses.map(expense => (
+                            <Card key={expense.id} className="shadow-sm">
+                                <CardContent className="p-4 flex justify-between items-start">
+                                   <div>
+                                     <p className="font-medium text-sm">{expense.description}</p>
+                                     <p className="text-xs text-muted-foreground">
+                                        {format(new Date(expense.date), "MMM dd, yyyy")} - {expense.category}
+                                     </p>
+                                   </div>
+                                   <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                    </ScrollArea>
+                ) : (
+                    <div className="text-center py-10">
+                        <List className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <p className="mt-4 text-muted-foreground text-lg">No expenses recorded for this group yet.</p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                            You can add expenses to this group from the <Link href="/expenses/add" className="text-primary underline">Add Expense page</Link>.
+                        </p>
+                    </div>
+                )}
+                <Button 
+                    variant="outline" 
+                    className="w-full mt-6" 
+                    onClick={() => router.push(`/expenses/add?groupId=${groupId}&groupName=${encodeURIComponent(group.name)}`)}
+                    disabled // Phase 2: Enable and implement add expense from here
+                >
+                    <CircleDollarSign className="mr-2 h-4 w-4" /> Add Expense to This Group (Coming Soon)
+                </Button>
+            </CardContent>
+        </Card>
+      </div>
       
-      {/* Placeholder for Group Expenses and Settings */}
-      <Card className="shadow-lg">
+      <Card className="shadow-lg mt-6">
         <CardHeader>
-          <CardTitle className="font-headline flex items-center"><Edit className="mr-2 h-5 w-5"/>Group Settings & Expenses</CardTitle>
-          <CardDescription>Manage group settings and track shared expenses (Coming Soon).</CardDescription>
+          <CardTitle className="font-headline flex items-center"><Edit className="mr-2 h-5 w-5"/>Group Settings</CardTitle>
+          <CardDescription>Manage group settings (Coming Soon).</CardDescription>
         </CardHeader>
         <CardContent>
-            <p className="text-muted-foreground">Functionality to edit group name, manage group-specific expenses, and view balances will be available here in a future update.</p>
+            <p className="text-muted-foreground">Functionality to edit group name and other group-specific settings will be available here in a future update.</p>
             <Image 
-                src="https://placehold.co/600x200.png?text=Group+Expenses+UI"
-                alt="Placeholder for group expenses UI"
+                src="https://placehold.co/600x200.png?text=Group+Settings+UI"
+                alt="Placeholder for group settings UI"
                 width={600}
                 height={200}
                 className="rounded-md mx-auto border shadow-sm my-4"
-                data-ai-hint="finance chart team"
+                data-ai-hint="settings gear interface"
             />
         </CardContent>
       </Card>
     </div>
   );
 }
+

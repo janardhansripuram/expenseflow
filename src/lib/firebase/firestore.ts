@@ -160,6 +160,40 @@ export async function deleteExpense(expenseId: string): Promise<void> {
   }
 }
 
+export async function getExpensesByGroupId(groupId: string): Promise<Expense[]> {
+  try {
+    if (!groupId) return [];
+    const q = query(
+      collection(db, EXPENSES_COLLECTION),
+      where('groupId', '==', groupId),
+      orderBy('date', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    const expenses: Expense[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      expenses.push({
+        id: doc.id,
+        description: data.description,
+        amount: data.amount,
+        category: data.category,
+        date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
+        notes: data.notes,
+        receiptUrl: data.receiptUrl,
+        groupId: data.groupId,
+        groupName: data.groupName,
+        createdAt: data.createdAt as Timestamp,
+        userId: data.userId,
+      });
+    });
+    return expenses;
+  } catch (error) {
+    console.error("Error getting expenses by group ID: ", error);
+    throw error;
+  }
+}
+
+
 // User Profile Functions
 export async function createUserProfile(userId: string, email: string, displayName?: string): Promise<void> {
   try {
