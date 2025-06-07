@@ -538,15 +538,15 @@ const SidebarMenuButton = React.forwardRef<
 >(
   (
     {
-      asChild: propAsChild, // Renamed to avoid conflict with asChild keyword
+      asChild: propAsChild,
       isActive: propIsActive,
       variant: propVariant,
       size: propSize,
       tooltip: propTooltip,
       className: propClassName,
-      href: propHref, // Renamed to be explicit
+      href: propHref, 
       children: propChildren,
-      ...propRest // All other props
+      ...propRest 
     },
     ref
   ) => {
@@ -555,35 +555,34 @@ const SidebarMenuButton = React.forwardRef<
       sidebarMenuButtonVariants({ variant: propVariant, size: propSize, className: propClassName })
     );
 
+    const { href: hrefFromRest, ...otherRestProps } = propRest as any; // Explicitly cast to any to access href
+    const effectiveHref = propHref || hrefFromRest;
+
     const baseProps = {
       "data-sidebar": "menu-button",
       "data-size": propSize,
       "data-active": String(propIsActive),
       className: effectiveClassName,
-      ...propRest,
+      ...otherRestProps, // Spread other props from Link, EXCLUDING href
     };
 
     let elementToRender;
 
     if (propAsChild) {
       elementToRender = (
-        <Slot ref={ref as React.Ref<any>} {...baseProps}>
+        <Slot ref={ref as React.Ref<any>} {...baseProps} {...(effectiveHref && { href: effectiveHref })}>
           {propChildren}
         </Slot>
       );
-    } else if (propHref) { // Use the explicitly destructured propHref
-      // Ensure no conflicting 'href' from propRest is spread if propHref is the source of truth
-      const { href, ...restForAnchor } = propRest; 
+    } else if (effectiveHref) {
       elementToRender = (
-        <a ref={ref as React.Ref<HTMLAnchorElement>} {...baseProps} href={propHref} {...restForAnchor}>
+        <a ref={ref as React.Ref<HTMLAnchorElement>} {...baseProps} href={effectiveHref}>
           {propChildren}
         </a>
       );
     } else {
-      // Ensure no conflicting 'href' from propRest is spread onto a button
-      const { href, ...restForButton } = propRest;
       elementToRender = (
-        <button ref={ref as React.Ref<HTMLButtonElement>} {...baseProps} {...restForButton}>
+        <button ref={ref as React.Ref<HTMLButtonElement>} {...baseProps}>
           {propChildren}
         </button>
       );
@@ -724,13 +723,15 @@ const SidebarMenuSubItem = React.forwardRef<
 SidebarMenuSubItem.displayName = "SidebarMenuSubItem"
 
 const SidebarMenuSubButton = React.forwardRef<
-  HTMLAnchorElement, // It will always render an anchor or a Slot that becomes one
-  React.ComponentProps<"a"> & { // So, it primarily takes anchor props
+  HTMLAnchorElement,
+  React.ComponentProps<"a"> & {
     asChild?: boolean;
     size?: "sm" | "md";
     isActive?: boolean;
   }
->(({ asChild: propAsChild, size = "md", isActive, className, children, ...props }, ref) => {
+>(({ asChild: propAsChild, size = "md", isActive, className, children, ...propsSpreadFromLink }, ref) => {
+  const { href, ...otherLinkProps } = propsSpreadFromLink as React.ComponentProps<"a">;
+
   const baseProps = {
     "data-sidebar": "menu-sub-button",
     "data-size": size,
@@ -743,19 +744,26 @@ const SidebarMenuSubButton = React.forwardRef<
       "group-data-[collapsible=icon]:hidden",
       className
     ),
-    ...props, // Contains href, onClick from Link
+    ...otherLinkProps, // Spread other props from Link, like onClick, EXCLUDING href
   };
 
-  if (propAsChild) {
-    return <Slot ref={ref as React.Ref<any>} {...baseProps}>{children}</Slot>;
+  if (propAsChild) { // If SidebarMenuSubButton itself is asChild
+    // If it's a slot, it still needs the href if it's meant to be a link (passed by Link asChild)
+    return <Slot ref={ref as React.Ref<any>} {...baseProps} {...(href && { href })}>{children}</Slot>;
   }
-
-  // If not asChild, it's an anchor. href should be in props.
-  return (
-    <a ref={ref} {...baseProps}>
-      {children}
-    </a>
-  );
+  
+  // If it's meant to be an anchor (default behavior when Link asChild is parent)
+  // It must have an href passed from Link.
+  if (href === undefined) { 
+    // Fallback or warning if href is missing when it's expected to be an anchor.
+    // This path should ideally not be taken if used correctly with Link asChild.
+    console.warn("SidebarMenuSubButton rendered as anchor without an href prop.");
+    // Render a non-interactive element or throw an error, depending on desired strictness.
+    // For now, let's render a div to avoid breaking, but this indicates a usage problem.
+    return <div ref={ref as any} {...baseProps}>{children}</div>;
+  }
+  
+  return ( <a ref={ref} {...baseProps} href={href}> {children} </a> );
 });
 SidebarMenuSubButton.displayName = "SidebarMenuSubButton"
 
