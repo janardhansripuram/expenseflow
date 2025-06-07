@@ -69,7 +69,7 @@ export default function EditIncomePage() {
           source: incomeData.source,
           amount: String(incomeData.amount),
           currency: incomeData.currency || "USD",
-          date: incomeData.date, // Already in YYYY-MM-DD from firestore.ts
+          date: incomeData.date, 
           notes: incomeData.notes || "",
         });
       } else {
@@ -186,7 +186,7 @@ export default function EditIncomePage() {
                         <SelectContent>
                           {SUPPORTED_CURRENCIES.map(curr => (
                             <SelectItem key={curr.code} value={curr.code}>
-                              {curr.code} - {curr.name}
+                              {curr.code} - {curr.name} ({curr.symbol})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -241,3 +241,5 @@ export default function EditIncomePage() {
     </div>
   );
 }
+
+    

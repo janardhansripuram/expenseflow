@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, PlusCircle, Target, Edit, Trash2, Landmark, AlertTriangle, Save } from "lucide-react"; // Added Save
+import { Loader2, PlusCircle, Target, Edit, Trash2, Landmark, AlertTriangle, Save } from "lucide-react"; 
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { addBudget, getBudgetsByUser, updateBudget, deleteBudget, getExpensesByUser } from "@/lib/firebase/firestore";
@@ -61,11 +61,11 @@ export default function BudgetsPage() {
   });
 
   useEffect(() => {
-    if (userProfile && !authLoading && !editingBudget) { // Only set default for new budget
+    if (userProfile && !authLoading && !editingBudget) { 
       form.reset({
         ...form.getValues(),
         currency: userProfile.defaultCurrency || "USD",
-        period: "monthly", // Ensure period is reset if needed
+        period: "monthly", 
       });
     }
   }, [userProfile, authLoading, form, editingBudget]);
@@ -381,7 +381,7 @@ export default function BudgetsPage() {
                             <SelectContent>
                             {SUPPORTED_CURRENCIES.map(curr => (
                                 <SelectItem key={curr.code} value={curr.code}>
-                                {curr.code} - {curr.name}
+                                  {curr.code} - {curr.name} ({curr.symbol})
                                 </SelectItem>
                             ))}
                             </SelectContent>
@@ -424,3 +424,5 @@ export default function BudgetsPage() {
     </div>
   );
 }
+
+    

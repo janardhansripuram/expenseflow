@@ -120,9 +120,9 @@ export default function AddExpensePage() {
   useEffect(() => {
     if (userProfile && !authLoading) {
       form.reset({
-        ...form.getValues(), // Preserve existing form values if any
+        ...form.getValues(), 
         currency: userProfile.defaultCurrency || "USD",
-        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"), // Ensure date is initialized
+        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"), 
       });
     }
   }, [userProfile, authLoading, form]);
@@ -298,7 +298,7 @@ export default function AddExpensePage() {
                         <SelectContent>
                           {SUPPORTED_CURRENCIES.map(curr => (
                             <SelectItem key={curr.code} value={curr.code}>
-                              {curr.code} - {curr.name}
+                              {curr.code} - {curr.name} ({curr.symbol})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -531,3 +531,5 @@ export default function AddExpensePage() {
     </div>
   );
 }
+
+    

@@ -123,7 +123,6 @@ export default function ReportsPage() {
   useEffect(() => {
     const currencies = Array.from(new Set(expensesFilteredByPeriod.map(exp => exp.currency))).sort() as CurrencyCode[];
     setUniqueCurrenciesForFilter(currencies);
-    // Reset chart currency filter if the new set of expenses doesn't include the currently selected one
     if (currencies.length > 0 && selectedChartCurrencyFilter !== 'all' && !currencies.includes(selectedChartCurrencyFilter)) {
         setSelectedChartCurrencyFilter('all');
     } else if (currencies.length === 0 && selectedChartCurrencyFilter !== 'all') {
@@ -146,7 +145,7 @@ export default function ReportsPage() {
   }, [expensesForChart, selectedChartCurrencyFilter]);
 
   useEffect(() => {
-    setSummaryData(null); // Reset AI summary when period or currency filter for charts changes
+    setSummaryData(null); 
   }, [expensesFilteredByPeriod, selectedChartCurrencyFilter]);
 
 
@@ -164,11 +163,11 @@ export default function ReportsPage() {
     setIsLoadingSummary(true);
     setSummaryData(null); 
     try {
-      const spendingDataString = expensesFilteredByPeriod // Use period-filtered expenses for AI summary
+      const spendingDataString = expensesFilteredByPeriod 
         .map(e => `${e.category} - ${e.description}: ${e.amount.toFixed(2)} ${e.currency} on ${e.date}`)
         .join('\n');
       
-      let periodDescription = getPeriodDescriptionForCharts(); // Use the same description as charts
+      let periodDescription = getPeriodDescriptionForCharts(); 
       
       const result = await summarizeSpending({ spendingData: spendingDataString, period: periodDescription });
       setSummaryData(result);
@@ -198,7 +197,7 @@ export default function ReportsPage() {
   }, [chartData]);
   
   const chartCurrencyLabel = useMemo(() => {
-    if (selectedChartCurrencyFilter === 'all') return ""; // Generic label or empty
+    if (selectedChartCurrencyFilter === 'all') return ""; 
     const currencyInfo = SUPPORTED_CURRENCIES.find(c => c.code === selectedChartCurrencyFilter);
     return currencyInfo ? `(${currencyInfo.symbol})` : `(${selectedChartCurrencyFilter})`;
   }, [selectedChartCurrencyFilter]);
@@ -250,7 +249,7 @@ export default function ReportsPage() {
   };
 
   const handleExportToCSV = () => {
-    if (expensesFilteredByPeriod.length === 0) { // Export based on period filter, not chart currency filter
+    if (expensesFilteredByPeriod.length === 0) { 
       toast({ title: "No Data", description: "No expenses to export for the selected period." });
       return;
     }
@@ -425,7 +424,7 @@ export default function ReportsPage() {
                     <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
                         <AlertTriangle className="h-4 w-4 text-amber-600" />
                         <AlertDescription>
-                        Chart displays direct sum of amounts in various currencies. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
+                        Amounts in different currencies are summed together without conversion. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
                         </AlertDescription>
                     </Alert>
                 )}
@@ -445,7 +444,7 @@ export default function ReportsPage() {
                         cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
                         content={<ChartTooltipContent indicator="dot" formatter={(value, name, props) => {
                             const currencyCode = props.payload.currency || (selectedChartCurrencyFilter !== 'all' ? selectedChartCurrencyFilter : undefined);
-                            const currencySymbol = currencyCode ? (SUPPORTED_CURRENCIES.find(c=>c.code === currencyCode)?.symbol || '') : (selectedChartCurrencyFilter === 'all' ? '' : '$'); // Default to $ or specific if filtered
+                            const currencySymbol = currencyCode ? (SUPPORTED_CURRENCIES.find(c=>c.code === currencyCode)?.symbol || '') : (selectedChartCurrencyFilter === 'all' ? '' : '$'); 
                             return `${currencySymbol}${Number(value).toLocaleString()}`;
                          }} />} 
                         />
@@ -472,7 +471,7 @@ export default function ReportsPage() {
                         <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
                             <AlertTriangle className="h-4 w-4 text-amber-600" />
                             <AlertDescription>
-                            Chart displays direct sum of amounts in various currencies. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
+                             Amounts in different currencies are summed together without conversion. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
                             </AlertDescription>
                         </Alert>
                     )}
@@ -586,3 +585,4 @@ export default function ReportsPage() {
   );
 }
 
+    

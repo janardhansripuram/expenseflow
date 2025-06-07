@@ -14,7 +14,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { updateUserProfile } from '@/lib/firebase/firestore'; // getUserProfile removed as it's now in AuthProvider
+import { updateUserProfile } from '@/lib/firebase/firestore'; 
 import { updateProfile as updateAuthProfile, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
 import type { UserProfile, CurrencyCode } from '@/lib/types';
@@ -68,7 +68,7 @@ type ReAuthFormData = z.infer<typeof reAuthSchema>;
 
 
 export default function SettingsPage() {
-  const { authUser, userProfile, loading: authLoading } = useAuth(); // Use authUser and userProfile
+  const { authUser, userProfile, loading: authLoading } = useAuth(); 
   const { toast } = useToast();
   const router = useRouter();
 
@@ -106,8 +106,6 @@ export default function SettingsPage() {
             defaultCurrency: userProfile.defaultCurrency || 'USD',
         });
     } else if (authUser && !userProfile && !authLoading) {
-        // Auth user exists, but profile might still be loading or failed to load
-        // Reset with authUser's email if available, and a sensible default for displayName
         profileForm.reset({
             displayName: authUser.displayName || authUser.email?.split('@')[0] || '',
             email: authUser.email || '',
@@ -138,7 +136,6 @@ export default function SettingsPage() {
           await updateAuthProfile(auth.currentUser, { displayName: values.displayName });
         }
         toast({ title: "Profile Updated", description: "Your profile settings have been saved." });
-        // AuthProvider will refetch the profile, so no manual state update needed here for userProfile
       } else {
         toast({ title: "No Changes", description: "No changes were made to your profile." });
       }
@@ -186,9 +183,9 @@ export default function SettingsPage() {
     try {
       const credential = EmailAuthProvider.credential(authUser.email, values.password);
       await reauthenticateWithCredential(authUser, credential);
-      setIsDeleteAccountReAuthOpen(false); // Close re-auth dialog
+      setIsDeleteAccountReAuthOpen(false); 
       reAuthForm.reset();
-      setIsDeleteAccountConfirmOpen(true); // Open final confirmation dialog
+      setIsDeleteAccountConfirmOpen(true); 
     } catch (error: any) {
       console.error("Failed to re-authenticate for deletion:", error);
       let description = "Could not verify your password.";
@@ -199,7 +196,7 @@ export default function SettingsPage() {
         }
       toast({ variant: "destructive", title: "Re-authentication Failed", description });
     } finally {
-      setIsDeletingAccount(false); // Reset general deleting flag, confirmation will handle its own
+      setIsDeletingAccount(false); 
     }
   }
 
@@ -209,7 +206,7 @@ export default function SettingsPage() {
     try {
         await deleteUser(authUser);
         toast({ title: "Account Deleted", description: "Your account has been permanently deleted." });
-        router.push("/login"); // Redirect to login or home page
+        router.push("/login"); 
     } catch (error: any) {
         console.error("Failed to delete account:", error);
         toast({ variant: "destructive", title: "Deletion Failed", description: "Could not delete your account. Please try logging out and back in, then try again." });
@@ -302,7 +299,7 @@ export default function SettingsPage() {
                         <SelectContent>
                           {SUPPORTED_CURRENCIES.map(curr => (
                             <SelectItem key={curr.code} value={curr.code}>
-                              {curr.code} - {curr.name}
+                              {curr.code} - {curr.name} ({curr.symbol})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -463,3 +460,5 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+    

@@ -293,7 +293,7 @@ export default function EditExpensePage() {
                         <SelectContent>
                           {SUPPORTED_CURRENCIES.map(curr => (
                             <SelectItem key={curr.code} value={curr.code}>
-                              {curr.code} - {curr.name}
+                              {curr.code} - {curr.name} ({curr.symbol})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -505,3 +505,5 @@ export default function EditExpensePage() {
     </div>
   );
 }
+
+    

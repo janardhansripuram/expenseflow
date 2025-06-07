@@ -77,18 +77,8 @@ export default function ScanReceiptPage() {
       notes: "",
     },
   });
-
-  useEffect(() => {
-    if (userProfile && !authLoading) {
-      form.reset({
-        ...form.getValues(),
-        currency: userProfile.defaultCurrency || "USD",
-        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"),
-      });
-    }
-  }, [userProfile, authLoading, form]);
-
-  const resetFormAndState = useCallback(() => {
+  
+  const resetFormAndState = useCallback((keepSelectedImage: boolean = false) => {
     form.reset({
       description: "",
       amount: "",
@@ -98,7 +88,9 @@ export default function ScanReceiptPage() {
       merchantName: "",
       notes: "",
     });
-    setSelectedImageUri(null);
+    if (!keepSelectedImage) {
+        setSelectedImageUri(null);
+    }
     setExtractedData(null);
     setIsCameraMode(false);
     if (videoRef.current && videoRef.current.srcObject) {
@@ -106,7 +98,18 @@ export default function ScanReceiptPage() {
       videoRef.current.srcObject = null;
     }
   }, [form, userProfile]);
-  
+
+  useEffect(() => {
+    // Initialize form with default currency when profile loads or changes
+    if (userProfile && !authLoading) {
+      form.reset({
+        ...form.getValues(), // Keep other values if they exist
+        currency: userProfile.defaultCurrency || "USD",
+        date: form.getValues("date") || format(new Date(), "yyyy-MM-dd"), // Ensure date is initialized
+      });
+    }
+  }, [userProfile, authLoading, form]);
+
   useEffect(() => {
     return () => { 
       if (videoRef.current && videoRef.current.srcObject) {
@@ -120,9 +123,8 @@ export default function ScanReceiptPage() {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
+        resetFormAndState(true); // Reset form but keep the image URI about to be set
         setSelectedImageUri(reader.result as string);
-        setExtractedData(null); 
-        form.reset({ currency: userProfile?.defaultCurrency || "USD", date: format(new Date(), "yyyy-MM-dd") }); 
         setIsCameraMode(false); 
         if (videoRef.current && videoRef.current.srcObject) {
           (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
@@ -170,9 +172,8 @@ export default function ScanReceiptPage() {
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUri = canvas.toDataURL("image/jpeg");
+        resetFormAndState(true); // Reset form but keep the image URI about to be set
         setSelectedImageUri(dataUri);
-        setExtractedData(null);
-        form.reset({ currency: userProfile?.defaultCurrency || "USD", date: format(new Date(), "yyyy-MM-dd") });
       }
       if (video.srcObject) {
         (video.srcObject as MediaStream).getTracks().forEach(track => track.stop());
@@ -194,19 +195,29 @@ export default function ScanReceiptPage() {
 
     setIsExtracting(true);
     setExtractedData(null); 
-    const currentCurrency = form.getValues("currency") || userProfile?.defaultCurrency || "USD"; 
-    form.reset({ currency: currentCurrency, date: format(new Date(), "yyyy-MM-dd") }); 
+    // Preserve current form currency or use profile default if not set.
+    const currentFormCurrency = form.getValues("currency") || userProfile?.defaultCurrency || "USD";
+    // Reset form fields that will be populated by OCR, but keep the currency
+    form.reset({
+      ...form.getValues(), // keep notes, merchantName etc. if user typed them
+      description: "",
+      amount: "",
+      category: "",
+      date: format(new Date(), "yyyy-MM-dd"), // default date
+      currency: currentFormCurrency, // Explicitly set currency
+    }); 
 
     try {
       const result = await extractExpenseFromReceipt({ photoDataUri: selectedImageUri });
       setExtractedData(result);
+      // Set values from OCR result. The currency field remains as user's default.
       form.setValue("description", result.description || "");
       form.setValue("amount", result.amount ? String(result.amount) : "");
       form.setValue("category", result.category || "other"); 
       form.setValue("date", result.date || format(new Date(), "yyyy-MM-dd"));
       form.setValue("merchantName", result.merchantName || "");
-      form.setValue("currency", currentCurrency); 
-      toast({ title: "Details Extracted", description: "Review and save the expense. Confirm currency.", });
+      // DO NOT form.setValue("currency", ...) here unless OCR provides it reliably.
+      toast({ title: "Details Extracted", description: "Review and save the expense. Confirm currency is correct.", });
     } catch (error) {
       console.error("Failed to extract details:", error);
       toast({
@@ -398,7 +409,7 @@ export default function ScanReceiptPage() {
                             <SelectContent>
                             {SUPPORTED_CURRENCIES.map(curr => (
                                 <SelectItem key={curr.code} value={curr.code}>
-                                {curr.code} - {curr.name}
+                                  {curr.code} - {curr.name} ({curr.symbol})
                                 </SelectItem>
                             ))}
                             </SelectContent>
@@ -468,7 +479,7 @@ export default function ScanReceiptPage() {
                   )}
                 />
                 <div className="flex justify-between gap-2 pt-4">
-                   <Button variant="outline" type="button" onClick={resetFormAndState}>
+                   <Button variant="outline" type="button" onClick={() => resetFormAndState()}>
                       Clear / Scan Another
                   </Button>
                   <Button type="submit" disabled={isSubmitting || isExtracting || authLoading}>
@@ -484,3 +495,5 @@ export default function ScanReceiptPage() {
     </div>
   );
 }
+
+    

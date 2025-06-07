@@ -30,7 +30,7 @@ interface ProcessedReminder extends Reminder {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { authUser: user } = useAuth(); // Renamed user to authUser to match useAuth hook
   const router = useRouter();
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
@@ -87,7 +87,7 @@ export default function DashboardPage() {
       }
     }
     fetchDashboardData();
-  }, [user, selectedDashboardChartCurrency]); // Re-fetch or re-evaluate unique currencies if selected currency changes? No, only on user change.
+  }, [user, selectedDashboardChartCurrency]); 
 
   const expensesForDashboardChart = useMemo(() => {
     if (selectedDashboardChartCurrency === 'all') {
@@ -265,7 +265,7 @@ export default function DashboardPage() {
                   <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
                     <AlertTriangle className="h-4 w-4 text-amber-600" />
                     <AlertDescription>
-                      Chart sums amounts in various currencies. For precise analysis, filter by a specific currency above.
+                      Amounts in different currencies are summed together without conversion. This may not be arithmetically accurate. Filter by a specific currency for precise analysis.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -392,3 +392,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
