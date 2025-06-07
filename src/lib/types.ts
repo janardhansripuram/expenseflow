@@ -23,6 +23,8 @@ export interface Expense {
   receiptUrl?: string; // URL to stored receipt image (for future use)
   createdAt: Timestamp; // Firestore Timestamp
   userId: string;
+  groupId?: string; // ID of the group this expense belongs to
+  groupName?: string; // Denormalized name of the group
 }
 
 export type ExpenseFormData = {
@@ -31,6 +33,8 @@ export type ExpenseFormData = {
   category: string;
   date: string; // YYYY-MM-DD
   notes?: string;
+  groupId?: string; // Optional group ID
+  groupName?: string; // Optional: passed to firestore, derived from selected group
 };
 
 export interface UserProfile {

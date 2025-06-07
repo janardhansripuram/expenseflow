@@ -17,7 +17,7 @@ const REMINDERS_COLLECTION = 'reminders';
 export async function addExpense(userId: string, expenseData: ExpenseFormData): Promise<string> {
   try {
     if (!userId) throw new Error("User ID is required to add an expense.");
-    const docRef = await addDoc(collection(db, EXPENSES_COLLECTION), {
+    const expenseDoc: any = {
       userId,
       description: expenseData.description,
       amount: parseFloat(expenseData.amount),
@@ -25,7 +25,14 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData): 
       date: Timestamp.fromDate(new Date(expenseData.date)),
       notes: expenseData.notes || '',
       createdAt: Timestamp.now(),
-    });
+    };
+
+    if (expenseData.groupId && expenseData.groupName) {
+      expenseDoc.groupId = expenseData.groupId;
+      expenseDoc.groupName = expenseData.groupName;
+    }
+
+    const docRef = await addDoc(collection(db, EXPENSES_COLLECTION), expenseDoc);
     return docRef.id;
   } catch (error) {
     console.error("Error adding document: ", error);
@@ -53,6 +60,8 @@ export async function getExpensesByUser(userId: string): Promise<Expense[]> {
         date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
         notes: data.notes,
         receiptUrl: data.receiptUrl,
+        groupId: data.groupId,
+        groupName: data.groupName,
         createdAt: data.createdAt as Timestamp,
         userId: data.userId,
       });
@@ -85,6 +94,8 @@ export async function getRecentExpensesByUser(userId: string, count: number = 5)
         date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
         notes: data.notes,
         receiptUrl: data.receiptUrl,
+        groupId: data.groupId,
+        groupName: data.groupName,
         createdAt: data.createdAt as Timestamp,
         userId: data.userId,
       });
@@ -126,6 +137,12 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
     if (expenseData.amount) {
       updateData.amount = parseFloat(expenseData.amount);
     }
+    // Handle groupId and groupName updates if necessary, though typically set at creation
+    if (expenseData.hasOwnProperty('groupId')) { // Check if groupId is explicitly being set (even to null/undefined)
+      updateData.groupId = expenseData.groupId || null; // Set to null if undefined to remove
+      updateData.groupName = expenseData.groupName || null;
+    }
+    
     await updateDoc(docRef, updateData);
   } catch (error) {
     console.error("Error updating document: ", error);

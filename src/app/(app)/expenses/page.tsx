@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PlusCircle, ListFilter, Loader2, Edit, Trash2 } from "lucide-react";
+import { PlusCircle, ListFilter, Loader2, Edit, Trash2, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser, deleteExpense } from "@/lib/firebase/firestore";
 import type { Expense } from "@/lib/types";
@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
@@ -127,6 +128,7 @@ export default function ExpensesPage() {
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Group</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -137,6 +139,16 @@ export default function ExpensesPage() {
                     <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
                     <TableCell>{expense.category}</TableCell>
                     <TableCell>{expense.date}</TableCell>
+                    <TableCell>
+                      {expense.groupName ? (
+                        <Badge variant="secondary" className="flex items-center gap-1 max-w-fit">
+                          <Users className="h-3 w-3" />
+                          {expense.groupName}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">Personal</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="icon" className="mr-2" disabled>
                         <Edit className="h-4 w-4" />

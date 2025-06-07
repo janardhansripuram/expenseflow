@@ -19,13 +19,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Save, Paperclip, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Paperclip, Loader2, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { addExpense } from "@/lib/firebase/firestore";
-import type { ExpenseFormData } from "@/lib/types";
+import { addExpense, getGroupsForUser } from "@/lib/firebase/firestore";
+import type { ExpenseFormData, Group } from "@/lib/types";
 import { format } from "date-fns";
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 const expenseSchema = z.object({
   description: z.string().min(1, "Description is required"),
@@ -35,13 +35,16 @@ const expenseSchema = z.object({
   category: z.string().min(1, "Category is required"),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
+  groupId: z.string().optional(),
 });
 
 export default function AddExpensePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userGroups, setUserGroups] = useState<Group[]>([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
 
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseSchema),
@@ -51,8 +54,31 @@ export default function AddExpensePage() {
       category: "",
       date: format(new Date(), "yyyy-MM-dd"), // Default to today
       notes: "",
+      groupId: "",
     },
   });
+
+  useEffect(() => {
+    async function fetchGroups() {
+      if (user) {
+        setIsLoadingGroups(true);
+        try {
+          const groups = await getGroupsForUser(user.uid);
+          setUserGroups(groups);
+        } catch (error) {
+          console.error("Failed to fetch user groups:", error);
+          toast({
+            variant: "destructive",
+            title: "Error Loading Groups",
+            description: "Could not load your groups for selection.",
+          });
+        } finally {
+          setIsLoadingGroups(false);
+        }
+      }
+    }
+    fetchGroups();
+  }, [user, toast]);
 
   async function onSubmit(values: ExpenseFormData) {
     if (!user) {
@@ -64,8 +90,22 @@ export default function AddExpensePage() {
       return;
     }
     setIsSubmitting(true);
+
+    let dataToSave: ExpenseFormData = { ...values };
+    if (values.groupId) {
+      const selectedGroup = userGroups.find(g => g.id === values.groupId);
+      if (selectedGroup) {
+        dataToSave.groupName = selectedGroup.name;
+      }
+    } else {
+      // Ensure groupId and groupName are not sent if no group is selected or "None"
+      dataToSave.groupId = undefined;
+      dataToSave.groupName = undefined;
+    }
+
+
     try {
-      await addExpense(user.uid, values);
+      await addExpense(user.uid, dataToSave);
       toast({
         title: "Expense Added",
         description: "Your expense has been successfully recorded.",
@@ -136,49 +176,90 @@ export default function AddExpensePage() {
                 />
               </div>
               
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="category"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Category</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a category" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="food">Food & Dining</SelectItem>
+                          <SelectItem value="transport">Transportation</SelectItem>
+                          <SelectItem value="utilities">Utilities</SelectItem>
+                          <SelectItem value="entertainment">Entertainment</SelectItem>
+                          <SelectItem value="health">Health & Wellness</SelectItem>
+                          <SelectItem value="shopping">Shopping</SelectItem>
+                          <SelectItem value="travel">Travel</SelectItem>
+                          <SelectItem value="education">Education</SelectItem>
+                          <SelectItem value="gifts">Gifts & Donations</SelectItem>
+                          <SelectItem value="groceries">Groceries</SelectItem>
+                          <SelectItem value="office supplies">Office Supplies</SelectItem>
+                          <SelectItem value="clothing">Clothing</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <FormField
+                  control={form.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <FormField
                 control={form.control}
-                name="category"
+                name="groupId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormLabel className="flex items-center">
+                      <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                      Assign to Group (Optional)
+                    </FormLabel>
+                    <Select 
+                      onValueChange={field.onChange} 
+                      defaultValue={field.value || ""}
+                      disabled={isLoadingGroups || userGroups.length === 0}
+                    >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
+                          <SelectValue placeholder={isLoadingGroups ? "Loading groups..." : "Personal Expense (No Group)"} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="food">Food & Dining</SelectItem>
-                        <SelectItem value="transport">Transportation</SelectItem>
-                        <SelectItem value="utilities">Utilities</SelectItem>
-                        <SelectItem value="entertainment">Entertainment</SelectItem>
-                        <SelectItem value="health">Health & Wellness</SelectItem>
-                        <SelectItem value="shopping">Shopping</SelectItem>
-                        <SelectItem value="travel">Travel</SelectItem>
-                        <SelectItem value="education">Education</SelectItem>
-                        <SelectItem value="gifts">Gifts & Donations</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                        <SelectItem value="">Personal Expense (No Group)</SelectItem>
+                        {userGroups.map(group => (
+                          <SelectItem key={group.id} value={group.id}>
+                            {group.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
+                    {userGroups.length === 0 && !isLoadingGroups && (
+                        <p className="text-xs text-muted-foreground">No groups found. Create one on the <Link href="/groups" className="underline">Groups page</Link>.</p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Date</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
               <FormField
                 control={form.control}

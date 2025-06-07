@@ -5,13 +5,14 @@ import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowRight, PlusCircle, BarChart3, List, Loader2 } from "lucide-react";
+import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getRecentExpensesByUser, getExpensesByUser } from "@/lib/firebase/firestore";
 import type { Expense } from "@/lib/types";
 import { format } from "date-fns";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Badge } from "@/components/ui/badge";
 
 interface ChartDataItem {
   category: string;
@@ -108,12 +109,20 @@ export default function DashboardPage() {
             ) : recentExpenses.length > 0 ? (
               <div className="space-y-3">
                 {recentExpenses.map(expense => (
-                  <div key={expense.id} className="flex justify-between items-center p-2 rounded-md hover:bg-muted/50 transition-colors">
-                    <div>
+                  <div key={expense.id} className="flex justify-between items-start p-2 rounded-md hover:bg-muted/50 transition-colors">
+                    <div className="flex-1">
                       <p className="font-medium text-sm">{expense.description}</p>
-                      <p className="text-xs text-muted-foreground">{format(new Date(expense.date), "MMM dd, yyyy")} - {expense.category}</p>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span>{format(new Date(expense.date), "MMM dd, yyyy")}</span>
+                        <span>- {expense.category}</span>
+                      </div>
+                       {expense.groupName && (
+                          <Badge variant="secondary" className="mt-1 text-xs flex items-center gap-1 max-w-fit">
+                             <Users className="h-3 w-3"/> {expense.groupName}
+                          </Badge>
+                        )}
                     </div>
-                    <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
+                    <p className="font-semibold text-sm ml-2">{formatCurrency(expense.amount)}</p>
                   </div>
                 ))}
                  <Button variant="outline" className="w-full mt-2" asChild>
