@@ -32,13 +32,14 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId } from "@/lib/firebase/firestore";
 import type { Group, Friend, UserProfile, GroupMemberDetail, Expense } from "@/lib/types";
 import Image from "next/image";
 import { format } from "date-fns";
+import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
 
 export default function GroupDetailsPage() {
   const { user } = useAuth();
@@ -57,6 +58,9 @@ export default function GroupDetailsPage() {
   const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null); // memberId being added/removed
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<Record<string, boolean>>({});
+
+  const [isSplitExpenseDialogOpen, setIsSplitExpenseDialogOpen] = useState(false);
+  const [expenseToSplit, setExpenseToSplit] = useState<Expense | null>(null);
 
   const fetchGroupData = useCallback(async () => {
     if (!user || !groupId) return;
@@ -115,21 +119,20 @@ export default function GroupDetailsPage() {
       return;
     }
     
-    // Convert Friend[] to UserProfile[] for the firestore function
     const newMemberUserProfiles: UserProfile[] = newMemberFriendProfiles.map(f => ({
         uid: f.uid,
         email: f.email,
         displayName: f.displayName,
-        createdAt: f.addedAt // Using addedAt as a stand-in for createdAt for UserProfile structure
+        createdAt: f.addedAt 
     }));
 
-    setIsProcessingMember("adding"); // Generic state for adding
+    setIsProcessingMember("adding"); 
     try {
       await addMembersToGroup(groupId, newMemberUserProfiles);
       toast({ title: "Members Added", description: "New members have been added to the group." });
       setSelectedFriendsToAdd({});
       setIsAddMembersDialogOpen(false);
-      fetchGroupData(); // Refresh group data
+      fetchGroupData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Add Members", description: error.message || "Could not add members." });
     } finally {
@@ -152,7 +155,6 @@ export default function GroupDetailsPage() {
         return;
     }
 
-
     setIsProcessingMember(memberIdToRemove);
     try {
       await removeMemberFromGroup(groupId, memberIdToRemove);
@@ -161,7 +163,7 @@ export default function GroupDetailsPage() {
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
         router.push("/groups");
       } else {
-        fetchGroupData(); // Refresh group data
+        fetchGroupData(); 
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Remove Member", description: error.message || "Could not remove member." });
@@ -170,6 +172,11 @@ export default function GroupDetailsPage() {
     }
   };
   
+  const handleOpenSplitDialog = (expense: Expense) => {
+    setExpenseToSplit(expense);
+    setIsSplitExpenseDialogOpen(true);
+  };
+
   const getInitials = (name?: string, email?: string) => {
     if (name) {
       const parts = name.split(' ');
@@ -385,18 +392,33 @@ export default function GroupDetailsPage() {
                         <p className="ml-2">Loading expenses...</p>
                     </div>
                 ) : groupExpenses.length > 0 ? (
-                    <ScrollArea className="h-80">
+                    <ScrollArea className="h-[300px]">
                     <div className="space-y-3 pr-2">
                         {groupExpenses.map(expense => (
                             <Card key={expense.id} className="shadow-sm">
-                                <CardContent className="p-4 flex justify-between items-start">
-                                   <div>
-                                     <p className="font-medium text-sm">{expense.description}</p>
-                                     <p className="text-xs text-muted-foreground">
-                                        {format(new Date(expense.date), "MMM dd, yyyy")} - {expense.category}
-                                     </p>
+                                <CardContent className="p-3">
+                                   <div className="flex justify-between items-start">
+                                     <div>
+                                       <p className="font-medium text-sm">{expense.description}</p>
+                                       <p className="text-xs text-muted-foreground">
+                                          {format(new Date(expense.date), "MMM dd, yyyy")} - {expense.category}
+                                       </p>
+                                       <p className="text-xs text-muted-foreground">
+                                          Added by: {group.memberDetails.find(m => m.uid === expense.userId)?.displayName || group.memberDetails.find(m => m.uid === expense.userId)?.email || 'Unknown user'}
+                                       </p>
+                                     </div>
+                                     <div className="text-right">
+                                        <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
+                                        <Button 
+                                            variant="outline" 
+                                            size="sm" 
+                                            className="mt-1 text-xs"
+                                            onClick={() => handleOpenSplitDialog(expense)}
+                                        >
+                                            <Split className="mr-1.5 h-3.5 w-3.5"/> Split
+                                        </Button>
+                                     </div>
                                    </div>
-                                   <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
                                 </CardContent>
                             </Card>
                         ))}
@@ -406,17 +428,14 @@ export default function GroupDetailsPage() {
                     <div className="text-center py-10">
                         <List className="mx-auto h-12 w-12 text-muted-foreground" />
                         <p className="mt-4 text-muted-foreground text-lg">No expenses recorded for this group yet.</p>
-                        <p className="text-sm text-muted-foreground mt-2">
-                            You can add expenses to this group from the <Link href="/expenses/add" className="text-primary underline">Add Expense page</Link>.
-                        </p>
                     </div>
                 )}
-                <Button 
-                    variant="outline" 
+                 <Button 
+                    variant="default" 
                     className="w-full mt-6" 
                     onClick={() => router.push(`/expenses/add?groupId=${groupId}&groupName=${encodeURIComponent(group.name)}`)}
                 >
-                    <CircleDollarSign className="mr-2 h-4 w-4" /> Add Expense to This Group
+                    <CircleDollarSign className="mr-2 h-4 w-4" /> Add New Expense to This Group
                 </Button>
             </CardContent>
         </Card>
@@ -439,7 +458,15 @@ export default function GroupDetailsPage() {
             />
         </CardContent>
       </Card>
+      {expenseToSplit && group && (
+        <GroupExpenseSplitDialog
+          isOpen={isSplitExpenseDialogOpen}
+          onOpenChange={setIsSplitExpenseDialogOpen}
+          expenseToSplit={expenseToSplit}
+          group={group}
+          currentUserProfile={currentUserProfile}
+        />
+      )}
     </div>
   );
 }
-
