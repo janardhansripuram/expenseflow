@@ -12,7 +12,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  useSidebar, // Import useSidebar
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { ChevronDown } from 'lucide-react';
 import React from 'react';
@@ -25,12 +25,11 @@ interface SidebarItemsProps {
 export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
   const pathname = usePathname();
   const [openSubmenus, setOpenSubmenus] = React.useState<Record<string, boolean>>({});
-  const { state, isMobile } = useSidebar(); // Get state and isMobile from context
+  const { state, isMobile } = useSidebar();
 
   const toggleSubmenu = (title: string) => {
     setOpenSubmenus(prev => ({ ...prev, [title]: !prev[title] }));
   };
-
 
   return (
     <SidebarMenu>
@@ -52,7 +51,6 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
                   isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
                 )}
                 aria-expanded={isSubmenuOpen}
-                // Add tooltip for parent menu items when collapsed
                 tooltip={state === "collapsed" && !isMobile ? item.title : undefined}
               >
                 <div className="flex items-center gap-2">
@@ -69,15 +67,12 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
                       <SidebarMenuSubItem key={subItem.title}>
                         <Link href={subItem.href} asChild>
                           <SidebarMenuSubButton
-                            asChild
                             isActive={isSubActive}
                             onClick={onLinkClick}
                             className={cn(isSubActive && "bg-sidebar-accent text-sidebar-accent-foreground")}
                           >
-                            <a> {/* Link content is now inside <a> tag for proper styling and behavior */}
-                              {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
-                              {subItem.title}
-                            </a>
+                            {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
+                            {subItem.title}
                           </SidebarMenuSubButton>
                         </Link>
                       </SidebarMenuSubItem>
@@ -93,20 +88,17 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
           <SidebarMenuItem key={item.title}>
             <Link href={item.href} asChild>
               <SidebarMenuButton
-                asChild
                 isActive={isActive}
                 onClick={onLinkClick}
                 className={cn(isActive && "bg-sidebar-accent text-sidebar-accent-foreground")}
                 disabled={item.disabled}
                 tooltip={state === "collapsed" && !isMobile ? item.title : undefined}
               >
-                <a> {/* Link content is now inside <a> tag */}
-                  <item.icon className="h-5 w-5" />
-                  <span className="font-medium">{item.title}</span>
-                  {item.label && (
-                    <span className="ml-auto text-xs text-muted-foreground">{item.label}</span>
-                  )}
-                </a>
+                <item.icon className="h-5 w-5" />
+                <span className="font-medium">{item.title}</span>
+                {item.label && (
+                  <span className="ml-auto text-xs text-muted-foreground">{item.label}</span>
+                )}
               </SidebarMenuButton>
             </Link>
           </SidebarMenuItem>
