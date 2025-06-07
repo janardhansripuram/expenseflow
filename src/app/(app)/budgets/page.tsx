@@ -18,6 +18,7 @@ import { Progress } from "@/components/ui/progress";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useForm } from "react-hook-form"; // Added missing import
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; 
 import { cn } from "@/lib/utils";
@@ -246,7 +247,7 @@ export default function BudgetsPage() {
                       <div className="flex justify-between items-start">
                         <div>
                           <CardTitle className="text-xl font-headline text-primary">{budget.name}</CardTitle>
-                          <CardDescription>{getCategoryDisplayName(budget.category)} - {formatCurrencyDisplay(budget.amount, budget.currency)}</CardDescription>
+                          <CardDescription>{getCategoryDisplayName(budget.category)} - {formatCurrencyDisplay(budget.amount, budget.currency)} ({budget.currency})</CardDescription>
                         </div>
                         <div className="flex gap-1">
                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenDialog(budget)}>
