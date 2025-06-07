@@ -3,15 +3,15 @@ import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyBF_mWsg-XduLtYwHSKd5g0b4VZeBBD5qk',
-  appId: '1:48135073119:android:26ef153b2f2f306d9f5aea',
-  messagingSenderId: '48135073119',
-  projectId: 'splitease-1c2af',
-  storageBucket: 'splitease-1c2af.firebasestorage.app',
-  iosBundleId: 'com.splitease.app',
+  apiKey: 'AIzaSyDY6sr6tYPvaBHhGO_WNK7R-pIkquUaFLI',
+  appId: '1:167426634176:android:5b524545df9b7413875825',
+  messagingSenderId: '167426634176',
+  projectId: 'expenseflow-8d811',
+  storageBucket: 'expenseflow-8d811.firebasestorage.app',
+  iosBundleId: 'com.oweme.app',
   iosClientId: 'YOUR_IOS_CLIENT_ID',
-  androidClientId: 'AIzaSyC-y4YY70SOfqFu5fdEn6KQP1iil1Ggutg',
-  authDomain: 'splitease-1c2af.firebaseapp.com',
+  androidClientId: 'AIzaSyDY6sr6tYPvaBHhGO_WNK7R-pIkquUaFLI',
+  authDomain: 'expenseflow-8d811.firebaseapp.com',
   measurementId: 'G-MEASUREMENT_ID'
 };
 

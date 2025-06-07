@@ -71,5 +71,26 @@ export interface Group {
   createdAt: Timestamp;
   memberIds: string[]; // Array of UIDs of members
   memberDetails: GroupMemberDetail[]; // Denormalized for display
-  // Future: lastActivityAt, groupPhotoUrl, etc.
 }
+
+// Types for Expense Splitting (initial structure, will evolve)
+export interface SplitParticipant {
+  userId: string; // UID of the participant
+  displayName?: string; // For display
+  email?: string; // For display
+  amountOwed: number;
+  isSettled: boolean;
+}
+
+export interface SplitExpense {
+  id?: string; // Firestore document ID
+  originalExpenseId: string;
+  splitType: "equally"; // For now, only equally. Future: "unequally", "byAmount", "byPercentage"
+  totalAmount: number;
+  paidBy: string; // UID of the user who paid the original expense
+  participants: SplitParticipant[];
+  groupId?: string; // Optional, if split within a group
+  createdAt: Timestamp;
+  notes?: string;
+}
+
