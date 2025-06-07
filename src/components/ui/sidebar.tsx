@@ -71,8 +71,6 @@ const SidebarProvider = React.forwardRef<
     const isMobile = useIsMobile()
     const [openMobile, setOpenMobile] = React.useState(false)
 
-    // This is the internal state of the sidebar.
-    // We use openProp and setOpenProp for control from outside the component.
     const [_open, _setOpen] = React.useState(defaultOpen)
     const open = openProp ?? _open
     const setOpen = React.useCallback(
@@ -84,20 +82,17 @@ const SidebarProvider = React.forwardRef<
           _setOpen(openState)
         }
 
-        // This sets the cookie to keep the sidebar state.
         document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
       },
       [setOpenProp, open]
     )
 
-    // Helper to toggle the sidebar.
     const toggleSidebar = React.useCallback(() => {
       return isMobile
         ? setOpenMobile((open) => !open)
         : setOpen((open) => !open)
     }, [isMobile, setOpen, setOpenMobile])
 
-    // Adds a keyboard shortcut to toggle the sidebar.
     React.useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
         if (
@@ -113,8 +108,6 @@ const SidebarProvider = React.forwardRef<
       return () => window.removeEventListener("keydown", handleKeyDown)
     }, [toggleSidebar])
 
-    // We add a state so that we can do data-state="expanded" or "collapsed".
-    // This makes it easier to style the sidebar with Tailwind classes.
     const state = open ? "expanded" : "collapsed"
 
     const contextValue = React.useMemo<SidebarContext>(
@@ -222,7 +215,6 @@ const Sidebar = React.forwardRef<
         data-variant={variant}
         data-side={side}
       >
-        {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
             "duration-200 relative h-svh w-[--sidebar-width] bg-transparent transition-[width] ease-linear",
@@ -239,7 +231,6 @@ const Sidebar = React.forwardRef<
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
-            // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
               : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
@@ -462,7 +453,6 @@ const SidebarGroupAction = React.forwardRef<
       data-sidebar="group-action"
       className={cn(
         "absolute right-3 top-3.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
-        // Increases the hit area of the button on mobile.
         "after:absolute after:-inset-2 after:md:hidden",
         "group-data-[collapsible=icon]:hidden",
         className
@@ -537,55 +527,74 @@ const sidebarMenuButtonVariants = cva(
 const SidebarMenuButton = React.forwardRef<
   HTMLButtonElement | HTMLAnchorElement,
   React.ComponentProps<"button"> &
-  Omit<React.ComponentProps<"a">, "href"> & { // Omit href from anchor to define it explicitly
-    asChild?: boolean
-    isActive?: boolean
-    tooltip?: string | React.ComponentProps<typeof TooltipContent>
-    variant?: VariantProps<typeof sidebarMenuButtonVariants>["variant"]
-    size?: VariantProps<typeof sidebarMenuButtonVariants>["size"]
-    href?: string // Explicitly define href
+  Omit<React.ComponentProps<"a">, "href"> & {
+    asChild?: boolean;
+    isActive?: boolean;
+    tooltip?: string | React.ComponentProps<typeof TooltipContent>;
+    variant?: VariantProps<typeof sidebarMenuButtonVariants>["variant"];
+    size?: VariantProps<typeof sidebarMenuButtonVariants>["size"];
+    href?: string; 
   }
 >(
   (
     {
-      asChild = false,
-      isActive = false,
-      variant = "default",
-      size = "default",
-      tooltip,
-      className,
-      href, // Destructured href
-      children, // Destructured children
-      ...props // Remaining props
+      asChild: propAsChild, // Renamed to avoid conflict with asChild keyword
+      isActive: propIsActive,
+      variant: propVariant,
+      size: propSize,
+      tooltip: propTooltip,
+      className: propClassName,
+      href: propHref, // Renamed to be explicit
+      children: propChildren,
+      ...propRest // All other props
     },
     ref
   ) => {
-    const { isMobile, state } = useSidebar()
-    const isLink = typeof href === 'string';
+    const { isMobile, state } = useSidebar();
+    const effectiveClassName = cn(
+      sidebarMenuButtonVariants({ variant: propVariant, size: propSize, className: propClassName })
+    );
 
     const baseProps = {
       "data-sidebar": "menu-button",
-      "data-size": size,
-      "data-active": String(isActive), // Ensure it's a string for data attribute
-      className: cn(sidebarMenuButtonVariants({ variant, size, className })),
-      ...props, // Spread other props like onClick, disabled, etc.
+      "data-size": propSize,
+      "data-active": String(propIsActive),
+      className: effectiveClassName,
+      ...propRest,
     };
 
     let elementToRender;
 
-    if (asChild) {
-      elementToRender = <Slot ref={ref} {...baseProps} href={href}>{children}</Slot>;
-    } else if (isLink) {
-      elementToRender = <a ref={ref as React.Ref<HTMLAnchorElement>} {...baseProps} href={href}>{children}</a>;
+    if (propAsChild) {
+      elementToRender = (
+        <Slot ref={ref as React.Ref<any>} {...baseProps}>
+          {propChildren}
+        </Slot>
+      );
+    } else if (propHref) { // Use the explicitly destructured propHref
+      // Ensure no conflicting 'href' from propRest is spread if propHref is the source of truth
+      const { href, ...restForAnchor } = propRest; 
+      elementToRender = (
+        <a ref={ref as React.Ref<HTMLAnchorElement>} {...baseProps} href={propHref} {...restForAnchor}>
+          {propChildren}
+        </a>
+      );
     } else {
-      elementToRender = <button ref={ref as React.Ref<HTMLButtonElement>} {...baseProps}>{children}</button>;
+      // Ensure no conflicting 'href' from propRest is spread onto a button
+      const { href, ...restForButton } = propRest;
+      elementToRender = (
+        <button ref={ref as React.Ref<HTMLButtonElement>} {...baseProps} {...restForButton}>
+          {propChildren}
+        </button>
+      );
     }
 
-    if (!tooltip) {
+    if (!propTooltip) {
       return elementToRender;
     }
 
-    const tooltipPropsObject = typeof tooltip === "string" ? { children: tooltip } : tooltip;
+    const tooltipPropsObject =
+      typeof propTooltip === "string" ? { children: propTooltip } : propTooltip;
 
     return (
       <Tooltip>
@@ -599,8 +608,9 @@ const SidebarMenuButton = React.forwardRef<
       </Tooltip>
     );
   }
-)
-SidebarMenuButton.displayName = "SidebarMenuButton"
+);
+SidebarMenuButton.displayName = "SidebarMenuButton";
+
 
 const SidebarMenuAction = React.forwardRef<
   HTMLButtonElement,
@@ -617,7 +627,6 @@ const SidebarMenuAction = React.forwardRef<
       data-sidebar="menu-action"
       className={cn(
         "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4 [&>svg]:shrink-0",
-        // Increases the hit area of the button on mobile.
         "after:absolute after:-inset-2 after:md:hidden",
         "peer-data-[size=sm]/menu-button:top-1",
         "peer-data-[size=default]/menu-button:top-1.5",
@@ -660,7 +669,6 @@ const SidebarMenuSkeleton = React.forwardRef<
     showIcon?: boolean
   }
 >(({ className, showIcon = false, ...props }, ref) => {
-  // Random width between 50 to 90%.
   const width = React.useMemo(() => {
     return `${Math.floor(Math.random() * 40) + 50}%`
   }, [])
@@ -716,17 +724,17 @@ const SidebarMenuSubItem = React.forwardRef<
 SidebarMenuSubItem.displayName = "SidebarMenuSubItem"
 
 const SidebarMenuSubButton = React.forwardRef<
-  HTMLAnchorElement,
-  React.ComponentProps<"a"> & {
-    asChild?: boolean
-    size?: "sm" | "md"
-    isActive?: boolean
+  HTMLAnchorElement, // It will always render an anchor or a Slot that becomes one
+  React.ComponentProps<"a"> & { // So, it primarily takes anchor props
+    asChild?: boolean;
+    size?: "sm" | "md";
+    isActive?: boolean;
   }
->(({ asChild = false, size = "md", isActive, className, children, ...props }, ref) => {
+>(({ asChild: propAsChild, size = "md", isActive, className, children, ...props }, ref) => {
   const baseProps = {
     "data-sidebar": "menu-sub-button",
     "data-size": size,
-    "data-active": String(isActive), // Ensure it's a string for data attribute
+    "data-active": String(isActive),
     className: cn(
       "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
       "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
@@ -738,12 +746,17 @@ const SidebarMenuSubButton = React.forwardRef<
     ...props, // Contains href, onClick from Link
   };
 
-  if (asChild) {
-    return <Slot ref={ref} {...baseProps}>{children}</Slot>;
+  if (propAsChild) {
+    return <Slot ref={ref as React.Ref<any>} {...baseProps}>{children}</Slot>;
   }
 
-  return <a ref={ref} {...baseProps}>{children}</a>;
-})
+  // If not asChild, it's an anchor. href should be in props.
+  return (
+    <a ref={ref} {...baseProps}>
+      {children}
+    </a>
+  );
+});
 SidebarMenuSubButton.displayName = "SidebarMenuSubButton"
 
 export {
