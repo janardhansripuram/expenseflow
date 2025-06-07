@@ -27,6 +27,8 @@ import type { ExpenseFormData, Group } from "@/lib/types";
 import { format } from "date-fns";
 import React, { useEffect, useState } from "react";
 
+const PERSONAL_GROUP_VALUE = "___PERSONAL___";
+
 const expenseSchema = z.object({
   description: z.string().min(1, "Description is required"),
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
@@ -55,7 +57,7 @@ export default function AddExpensePage() {
       category: "",
       date: format(new Date(), "yyyy-MM-dd"), // Default to today
       notes: "",
-      groupId: "",
+      groupId: "", // Default to empty string, placeholder will show
     },
   });
 
@@ -104,13 +106,18 @@ export default function AddExpensePage() {
     setIsSubmitting(true);
 
     let dataToSave: ExpenseFormData = { ...values };
-    if (values.groupId) {
+
+    if (values.groupId && values.groupId !== PERSONAL_GROUP_VALUE) {
       const selectedGroup = userGroups.find(g => g.id === values.groupId);
       if (selectedGroup) {
         dataToSave.groupName = selectedGroup.name;
+        // dataToSave.groupId is already values.groupId
+      } else {
+        // Fallback: if groupId is some other non-empty, non-personal string not in groups
+        dataToSave.groupId = undefined;
+        dataToSave.groupName = undefined;
       }
-    } else {
-      // Ensure groupId and groupName are not sent if no group is selected or "None"
+    } else { // This covers if values.groupId is "" (initial/reset) OR PERSONAL_GROUP_VALUE (explicitly selected)
       dataToSave.groupId = undefined;
       dataToSave.groupName = undefined;
     }
@@ -122,15 +129,15 @@ export default function AddExpensePage() {
         title: "Expense Added",
         description: "Your expense has been successfully recorded.",
       });
-      form.reset({ // Reset to defaults, clearing any pre-filled group
+      form.reset({ 
           description: "",
           amount: "",
           category: "",
           date: format(new Date(), "yyyy-MM-dd"),
           notes: "",
-          groupId: "",
+          groupId: "", // Reset to show placeholder
       }); 
-      router.push("/expenses"); // Navigate to expenses list
+      router.push("/expenses"); 
     } catch (error) {
       console.error("Failed to add expense:", error);
       toast({
@@ -254,7 +261,7 @@ export default function AddExpensePage() {
                     </FormLabel>
                     <Select 
                       onValueChange={field.onChange} 
-                      value={field.value || ""} // Ensure value is controlled
+                      value={field.value || ""} 
                       disabled={isLoadingGroups || userGroups.length === 0}
                     >
                       <FormControl>
@@ -263,7 +270,7 @@ export default function AddExpensePage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">Personal Expense (No Group)</SelectItem>
+                        <SelectItem value={PERSONAL_GROUP_VALUE}>Personal Expense (No Group)</SelectItem>
                         {userGroups.map(group => (
                           <SelectItem key={group.id} value={group.id}>
                             {group.name}

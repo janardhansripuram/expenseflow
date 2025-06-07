@@ -26,6 +26,8 @@ import { getExpenseById, updateExpense, getGroupsForUser } from "@/lib/firebase/
 import type { Expense, ExpenseFormData, Group } from "@/lib/types";
 import { format } from "date-fns";
 
+const PERSONAL_GROUP_VALUE = "___PERSONAL___";
+
 const expenseSchema = z.object({
   description: z.string().min(1, "Description is required"),
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
@@ -57,7 +59,7 @@ export default function EditExpensePage() {
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
-      groupId: "",
+      groupId: "", // Default to empty string, placeholder will show
     },
   });
 
@@ -84,9 +86,9 @@ export default function EditExpensePage() {
           description: expense.description,
           amount: String(expense.amount),
           category: expense.category,
-          date: expense.date, // Already in yyyy-MM-dd
+          date: expense.date, 
           notes: expense.notes || "",
-          groupId: expense.groupId || "",
+          groupId: expense.groupId || "", // If null/undefined, becomes "", placeholder shows
         });
       } else {
         toast({ variant: "destructive", title: "Not Found", description: "Expense not found." });
@@ -110,14 +112,19 @@ export default function EditExpensePage() {
     setIsSubmitting(true);
 
     let dataToSave: Partial<ExpenseFormData> = { ...values };
-    if (values.groupId) {
+    
+    if (values.groupId && values.groupId !== PERSONAL_GROUP_VALUE) {
       const selectedGroup = userGroups.find(g => g.id === values.groupId);
       if (selectedGroup) {
         dataToSave.groupName = selectedGroup.name;
+        // dataToSave.groupId is already values.groupId
+      } else {
+        // Fallback, unlikely if UI is correct
+        dataToSave.groupId = null; 
+        dataToSave.groupName = null;
       }
-    } else {
-      // Explicitly set to null if no group is selected or "Personal Expense"
-      dataToSave.groupId = null; // Send null to clear in Firestore
+    } else { // This covers if values.groupId is "" (placeholder was showing) OR PERSONAL_GROUP_VALUE
+      dataToSave.groupId = null; 
       dataToSave.groupName = null;
     }
     
@@ -269,7 +276,7 @@ export default function EditExpensePage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">Personal Expense (No Group)</SelectItem>
+                        <SelectItem value={PERSONAL_GROUP_VALUE}>Personal Expense (No Group)</SelectItem>
                         {userGroups.map(group => (
                           <SelectItem key={group.id} value={group.id}>
                             {group.name}
