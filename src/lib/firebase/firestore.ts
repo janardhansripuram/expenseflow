@@ -30,6 +30,9 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData): 
     if (expenseData.groupId && expenseData.groupName) {
       expenseDoc.groupId = expenseData.groupId;
       expenseDoc.groupName = expenseData.groupName;
+    } else {
+      expenseDoc.groupId = null;
+      expenseDoc.groupName = null;
     }
 
     const docRef = await addDoc(collection(db, EXPENSES_COLLECTION), expenseDoc);
@@ -115,10 +118,19 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
       const data = docSnap.data();
       return {
         id: docSnap.id,
-        ...data,
+        description: data.description,
+        amount: data.amount,
+        category: data.category,
         date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-      } as Expense;
+        notes: data.notes,
+        receiptUrl: data.receiptUrl,
+        groupId: data.groupId,
+        groupName: data.groupName,
+        createdAt: data.createdAt as Timestamp,
+        userId: data.userId,
+      };
     } else {
+      console.log("No such document!");
       return null;
     }
   } catch (error) {
@@ -130,24 +142,35 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
 export async function updateExpense(expenseId: string, expenseData: Partial<ExpenseFormData>): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
-    const updateData: any = { ...expenseData };
-    if (expenseData.date) {
-      updateData.date = Timestamp.fromDate(new Date(expenseData.date));
-    }
-    if (expenseData.amount) {
-      updateData.amount = parseFloat(expenseData.amount);
-    }
-    if (expenseData.hasOwnProperty('groupId')) { 
-      updateData.groupId = expenseData.groupId || null; 
-      updateData.groupName = expenseData.groupName || null;
-    }
+    // Construct the update object carefully to avoid sending undefined fields unless intended
+    const updateData: { [key: string]: any } = {};
+
+    if (expenseData.description !== undefined) updateData.description = expenseData.description;
+    if (expenseData.amount !== undefined) updateData.amount = parseFloat(expenseData.amount);
+    if (expenseData.category !== undefined) updateData.category = expenseData.category;
+    if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(new Date(expenseData.date));
+    if (expenseData.notes !== undefined) updateData.notes = expenseData.notes;
     
-    await updateDoc(docRef, updateData);
+    // Handle group assignment explicitly
+    if (expenseData.groupId) {
+      updateData.groupId = expenseData.groupId;
+      updateData.groupName = expenseData.groupName; // Assumes groupName is passed if groupId is
+    } else if (expenseData.groupId === '' || expenseData.groupId === null) { // Check for explicit "no group"
+      updateData.groupId = null;
+      updateData.groupName = null;
+    }
+    // If groupId is not in expenseData at all, it means the group assignment isn't being changed, so we don't touch those fields.
+
+    if (Object.keys(updateData).length > 0) {
+        updateData.updatedAt = Timestamp.now(); // Add an updatedAt timestamp
+        await updateDoc(docRef, updateData);
+    }
   } catch (error) {
     console.error("Error updating document: ", error);
     throw error;
   }
 }
+
 
 export async function deleteExpense(expenseId: string): Promise<void> {
   try {
@@ -549,7 +572,7 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
 // Split Expense Functions
 type CreateSplitExpenseData = Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'> & {
   originalExpenseDescription: string;
-  groupId?: string; // Add groupId here
+  groupId?: string;
 };
 
 export async function createSplitExpense(splitData: CreateSplitExpenseData): Promise<string> {

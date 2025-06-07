@@ -21,9 +21,9 @@ import {
   Loader2,
   PlusCircle,
   Split,
-  FileText, // For reports
-  ListChecks, // For reminders
-  UserCog, // For friends/sharing
+  FileText, 
+  ListChecks, 
+  UserCog, 
 } from 'lucide-react';
 import {
   SidebarProvider,
@@ -53,19 +53,30 @@ const navItems: NavItem[] = [
 
 const getPageTitle = (pathname: string, items: NavItem[]): string => {
   for (const item of items) {
-    if (item.href === pathname) return item.title;
-    if (item.submenu) {
-      for (const subItem of item.submenu) {
-        // Exact match for submenu items
-        if (subItem.href === pathname) return item.title; // Return parent title for submenus for now
-      }
+    if (item.href === pathname && !item.submenu) return item.title; // Exact match for non-submenu items
+    if (pathname.startsWith(item.href) && item.submenu) { // Parent title for submenus or base path of a feature
+        // Check for exact submenu match
+        for (const subItem of item.submenu) {
+            if (subItem.href === pathname) return item.title; // Or subItem.title if preferred
+        }
+        // Fallback for pages under a main nav item that aren't explicitly in submenu
+        if (item.href !== '/dashboard' && pathname.startsWith(item.href + '/')) {
+             // Special handling for dynamic routes
+            if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
+            if (pathname.startsWith('/expenses/view/')) return 'View Expense'; // Example
+            if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
+            return item.title; // Default to parent title
+        }
+        if (item.href === pathname) return item.title; // If it's the base path of a submenu item
     }
   }
-  if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
-  if (pathname.startsWith('/expenses/view/')) return 'View Expense';
-  if (pathname === '/expenses/scan') return 'Scan Receipt';
-  if (pathname.startsWith('/groups/') && pathname.split('/').length === 3) return 'Group Details';
-  return 'ExpenseFlow'; 
+   // Specific dynamic routes not covered by general logic
+  if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense';
+  if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
+  if (pathname === '/expenses/scan') return 'Scan Receipt'; // For specific non-dynamic sub-paths not in menus
+
+  const defaultTitle = items.find(item => item.href === '/dashboard')?.title || 'ExpenseFlow';
+  return pathname === '/dashboard' ? defaultTitle : 'ExpenseFlow';
 };
 
 
@@ -132,4 +143,3 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </SidebarProvider>
   );
 }
-

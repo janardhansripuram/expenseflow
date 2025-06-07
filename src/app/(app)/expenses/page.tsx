@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const { toast } = useToast();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,6 +78,10 @@ export default function ExpensesPage() {
     } finally {
       setIsDeleting(null);
     }
+  };
+
+  const handleEdit = (expenseId: string) => {
+    router.push(`/expenses/edit/${expenseId}`);
   };
 
   const formatCurrency = (amount: number) => {
@@ -150,7 +156,7 @@ export default function ExpensesPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="mr-2" disabled>
+                      <Button variant="ghost" size="icon" className="mr-1" onClick={() => expense.id && handleEdit(expense.id)}>
                         <Edit className="h-4 w-4" />
                          <span className="sr-only">Edit</span>
                       </Button>
