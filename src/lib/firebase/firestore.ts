@@ -2,7 +2,7 @@
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense } from '@/lib/types';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, Reminder, ReminderFormData, RecurrenceType } from '@/lib/types';
 
 const EXPENSES_COLLECTION = 'expenses';
 const USERS_COLLECTION = 'users';
@@ -10,6 +10,7 @@ const FRIEND_REQUESTS_COLLECTION = 'friendRequests';
 const FRIENDS_SUBCOLLECTION = 'friends';
 const GROUPS_COLLECTION = 'groups';
 const SPLIT_EXPENSES_COLLECTION = 'splitExpenses';
+const REMINDERS_COLLECTION = 'reminders';
 
 
 // Expense Functions
@@ -509,6 +510,82 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
     } as SplitExpense));
   } catch (error) {
     console.error("Error getting split expenses for user: ", error);
+    throw error;
+  }
+}
+
+// Reminder Functions
+export async function addReminder(userId: string, reminderData: ReminderFormData): Promise<string> {
+  try {
+    if (!userId) throw new Error("User ID is required to add a reminder.");
+    const now = Timestamp.now();
+    const docRef = await addDoc(collection(db, REMINDERS_COLLECTION), {
+      userId,
+      title: reminderData.title,
+      notes: reminderData.notes || '',
+      dueDate: Timestamp.fromDate(new Date(reminderData.dueDate)),
+      recurrence: reminderData.recurrence,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error adding reminder: ", error);
+    throw error;
+  }
+}
+
+export async function getRemindersByUser(userId: string): Promise<Reminder[]> {
+  try {
+    if (!userId) return [];
+    const q = query(
+      collection(db, REMINDERS_COLLECTION),
+      where('userId', '==', userId),
+      orderBy('dueDate', 'asc') // Or 'createdAt' for creation order
+    );
+    const querySnapshot = await getDocs(q);
+    const reminders: Reminder[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      reminders.push({
+        id: doc.id,
+        userId: data.userId,
+        title: data.title,
+        notes: data.notes,
+        dueDate: (data.dueDate as Timestamp).toDate().toISOString().split('T')[0],
+        recurrence: data.recurrence as RecurrenceType,
+        isCompleted: data.isCompleted,
+        createdAt: data.createdAt as Timestamp,
+        updatedAt: data.updatedAt as Timestamp,
+      });
+    });
+    return reminders;
+  } catch (error) {
+    console.error("Error getting reminders: ", error);
+    throw error;
+  }
+}
+
+export async function updateReminderCompletion(reminderId: string, isCompleted: boolean): Promise<void> {
+  try {
+    const reminderRef = doc(db, REMINDERS_COLLECTION, reminderId);
+    await updateDoc(reminderRef, {
+      isCompleted: isCompleted,
+      updatedAt: Timestamp.now(),
+    });
+  } catch (error) {
+    console.error("Error updating reminder completion status: ", error);
+    throw error;
+  }
+}
+
+export async function deleteReminder(reminderId: string): Promise<void> {
+  try {
+    const reminderRef = doc(db, REMINDERS_COLLECTION, reminderId);
+    await deleteDoc(reminderRef);
+  } catch (error) {
+    console.error("Error deleting reminder: ", error);
     throw error;
   }
 }

@@ -96,3 +96,25 @@ export interface SplitExpense {
   notes?: string;
 }
 
+// Types for Reminders
+export type RecurrenceType = "none" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface Reminder {
+  id?: string;
+  userId: string;
+  title: string;
+  notes?: string;
+  dueDate: string; // Stored as YYYY-MM-DD string, converted to Timestamp on save
+  recurrence: RecurrenceType;
+  isCompleted: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type ReminderFormData = {
+  title: string;
+  notes?: string;
+  dueDate: string; // YYYY-MM-DD
+  recurrence: RecurrenceType;
+};
+
