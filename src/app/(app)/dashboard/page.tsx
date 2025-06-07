@@ -5,7 +5,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users } from "lucide-react";
+import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getRecentExpensesByUser, getExpensesByUser } from "@/lib/firebase/firestore";
 import type { Expense } from "@/lib/types";
@@ -207,7 +207,11 @@ export default function DashboardPage() {
              <Button variant="outline" className="w-full" asChild>
               <Link href="/expenses/scan">Scan Receipt</Link>
             </Button>
-            <Button variant="outline" className="w-full" disabled>Split Expense (Coming Soon)</Button>
+            <Button variant="outline" className="w-full" asChild>
+              <Link href="/split">
+                <SplitIcon className="mr-2 h-4 w-4" /> Split an Expense
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
