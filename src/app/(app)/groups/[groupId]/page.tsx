@@ -36,7 +36,7 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement } from "@/lib/firebase/firestore";
@@ -164,17 +164,30 @@ export default function GroupDetailsPage() {
     group.memberDetails.forEach(member => {
       balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
     });
+    
+    const splitOriginalExpenseIds = new Set(splitExpensesForGroup.map(s => s.originalExpenseId));
 
+    // Process direct group expenses (only if not formally split)
     groupExpenses.forEach(expense => {
-      if (balances[expense.userId]) {
+      if (!splitOriginalExpenseIds.has(expense.id!) && balances[expense.userId]) {
         balances[expense.userId].paidForGroup += expense.amount;
       }
     });
-
+    
+    // Process formalized splits
     splitExpensesForGroup.forEach(split => {
+      // Credit the payer for amounts owed by OTHERS in this split
+      let amountPaidForOthersInThisSplit = 0;
+      split.participants.forEach(p => {
+        if (p.userId !== split.paidBy) { 
+          amountPaidForOthersInThisSplit += p.amountOwed;
+        }
+      });
       if (balances[split.paidBy]) {
-        balances[split.paidBy].paidForGroup += split.totalAmount;
+        balances[split.paidBy].paidForGroup += amountPaidForOthersInThisSplit;
       }
+
+      // Debit participants who OWE in this split (and are not the payer and not settled)
       split.participants.forEach(participant => {
         if (balances[participant.userId]) {
           if (participant.userId !== split.paidBy && !participant.isSettled) {
@@ -564,7 +577,7 @@ export default function GroupDetailsPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><CircleDollarSign className="mr-2 h-5 w-5"/>Group Expenses</CardTitle>
-                    <CardDescription>Expenses associated with {group.name}.</CardDescription>
+                    <CardDescription>Expenses associated with {group.name}. Only direct expenses *not yet split* contribute to initial 'Paid for Group' balances before formal splits are considered.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoadingExpenses ? (
@@ -624,7 +637,7 @@ export default function GroupDetailsPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><Scale className="mr-2 h-5 w-5"/>Group Balances</CardTitle>
-                    <CardDescription>Summary of who paid and who owes within the group.</CardDescription>
+                    <CardDescription>Summary of who owes whom within the group based on formalized splits and direct, unsplit expenses.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoadingBalances ? (
@@ -664,7 +677,7 @@ export default function GroupDetailsPage() {
                         <p className="text-muted-foreground text-center py-4">No balance data to display.</p>
                     )}
                     <p className="text-xs text-muted-foreground mt-4">
-                        Balances are based on direct group expenses paid and formalized splits. A positive net balance means the member is owed by others overall; a negative means they owe. Use &quot;Split this Expense&quot; on direct group expenses to formalize individual shares.
+                        "Paid for Group" includes direct group expenses you paid (if not yet split) and amounts owed to you by others from formal splits you paid for. "Owes from Splits" is your share from splits paid by others. Net Balance reflects your overall financial position within the group.
                     </p>
                 </CardContent>
             </Card>
