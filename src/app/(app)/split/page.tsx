@@ -627,15 +627,13 @@ export default function SplitExpensesPage() {
                                         </CardDescription>
                                     </div>
                                     <div className="flex gap-1">
-                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => split.id && handleEditSplit(split.id)}>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => split.id && handleEditSplit(split.id)} aria-label="Edit split">
                                             <Edit className="h-4 w-4" />
-                                            <span className="sr-only">Edit Split</span>
                                         </Button>
                                         <AlertDialog>
                                             <AlertDialogTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/90" disabled={isDeletingSplit === split.id}>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/90" disabled={isDeletingSplit === split.id} aria-label="Delete split">
                                                     {isDeletingSplit === split.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                                                    <span className="sr-only">Delete Split</span>
                                                 </Button>
                                             </AlertDialogTrigger>
                                             <AlertDialogContent>

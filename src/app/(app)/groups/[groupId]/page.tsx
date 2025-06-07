@@ -450,9 +450,8 @@ export default function GroupDetailsPage() {
             {isCurrentUserCreator && (
               <Dialog open={isEditGroupNameDialogOpen} onOpenChange={setIsEditGroupNameDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" aria-label="Edit Group Name">
                     <Edit2 className="h-5 w-5" />
-                    <span className="sr-only">Edit Group Name</span>
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
@@ -583,6 +582,7 @@ export default function GroupDetailsPage() {
                                 size="sm" 
                                 className="text-destructive hover:text-destructive/80"
                                 disabled={isProcessingMember === member.uid}
+                                aria-label={member.uid === user?.uid ? "Leave group" : "Remove member"}
                             >
                             {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             <span className="ml-1.5 hidden sm:inline">{member.uid === user?.uid ? "Leave" : "Remove"}</span>
@@ -607,7 +607,13 @@ export default function GroupDetailsPage() {
                     ): (member.uid === user?.uid && group.memberIds.length === 1 && isCurrentUserCreator && (
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/80" disabled={isProcessingMember === member.uid}>
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="text-destructive hover:text-destructive/80" 
+                                    disabled={isProcessingMember === member.uid}
+                                    aria-label="Delete group"
+                                >
                                     {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                                     <span className="ml-1.5 hidden sm:inline">Delete Group</span>
                                 </Button>

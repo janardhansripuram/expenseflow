@@ -297,7 +297,7 @@ export default function RemindersPage() {
                 <FormItem>
                     <FormLabel>Notes (Optional)</FormLabel>
                     <FormControl>
-                    <Textarea placeholder="Add any relevant notes..." {...field} />
+                    <Textarea placeholder="Add any relevant notes here..." {...field} />
                     </FormControl>
                     <FormMessage />
                 </FormItem>
@@ -354,7 +354,7 @@ export default function RemindersPage() {
                             checked={reminder.isCompleted}
                             onCheckedChange={() => reminder.id && handleToggleComplete(reminder.id, reminder.isCompleted)}
                             disabled={isProcessing === reminder.id}
-                            aria-label="Mark as complete"
+                            aria-label={`Mark reminder "${reminder.title}" as ${reminder.isCompleted ? 'pending' : 'complete'}`}
                             className="ml-auto h-5 w-5"
                         />
                      </div>
@@ -378,7 +378,13 @@ export default function RemindersPage() {
                     </Button>
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/80" disabled={isProcessing === reminder.id}>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-destructive hover:text-destructive/80" 
+                                disabled={isProcessing === reminder.id}
+                                aria-label={`Delete reminder "${reminder.title}"`}
+                            >
                                 {isProcessing === reminder.id && isProcessing !== editingReminder?.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </Button>
                         </AlertDialogTrigger>
