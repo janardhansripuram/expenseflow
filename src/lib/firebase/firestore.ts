@@ -1,7 +1,7 @@
 
 'use server';
 import { db } from './config';
-import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
 import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType } from '@/lib/types';
 
 const EXPENSES_COLLECTION = 'expenses';
@@ -143,27 +143,29 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
 export async function updateExpense(expenseId: string, expenseData: Partial<ExpenseFormData>): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
-    const updateData: { [key: string]: any } = {};
+    const updateData: { [key: string]: any } = {updatedAt: Timestamp.now()};
 
     if (expenseData.description !== undefined) updateData.description = expenseData.description;
     if (expenseData.amount !== undefined) updateData.amount = parseFloat(expenseData.amount);
     if (expenseData.category !== undefined) updateData.category = expenseData.category;
     if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(new Date(expenseData.date));
     if (expenseData.notes !== undefined) updateData.notes = expenseData.notes;
-    if (expenseData.receiptUrl !== undefined) updateData.receiptUrl = expenseData.receiptUrl;
-    else if (expenseData.receiptUrl === null) updateData.receiptUrl = null;
-
+    
+    if (expenseData.receiptUrl === null) { // Explicitly set to null for removal
+        updateData.receiptUrl = null;
+    } else if (expenseData.receiptUrl !== undefined) { // Only update if a new URL is provided
+        updateData.receiptUrl = expenseData.receiptUrl;
+    }
 
     if (expenseData.groupId) {
       updateData.groupId = expenseData.groupId;
       updateData.groupName = expenseData.groupName;
-    } else if (expenseData.groupId === '' || expenseData.groupId === null) {
+    } else if (expenseData.groupId === '' || expenseData.groupId === null) { // Check for empty string or explicit null
       updateData.groupId = null;
       updateData.groupName = null;
     }
     
-    if (Object.keys(updateData).length > 0) {
-        updateData.updatedAt = Timestamp.now();
+    if (Object.keys(updateData).length > 1) { // Ensure there's more than just updatedAt
         await updateDoc(docRef, updateData);
     }
   } catch (error) {
@@ -176,7 +178,6 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
 export async function deleteExpense(expenseId: string): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
-    // Note: Does not delete associated receipt image from Storage. This should be handled separately if needed.
     await deleteDoc(docRef);
   } catch (error) {
     console.error("Error deleting document: ", error);
@@ -393,7 +394,7 @@ export async function getFriends(userId: string): Promise<Friend[]> {
   try {
     if (!userId) return [];
     const friendsCollectionRef = collection(db, USERS_COLLECTION, userId, FRIENDS_SUBCOLLECTION);
-    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); // Or 'addedAt'
+    const q = query(friendsCollectionRef, orderBy('displayName', 'asc'));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), uid: docSnap.id } as Friend));
   } catch (error) {
@@ -492,7 +493,6 @@ export async function updateGroupDetails(groupId: string, data: { name?: string 
     batch.update(groupRef, updateData);
 
     if (data.name) {
-      // Update groupName in associated expenses
       const expensesQuery = query(collection(db, EXPENSES_COLLECTION), where('groupId', '==', groupId));
       const expensesSnapshot = await getDocs(expensesQuery);
       expensesSnapshot.forEach(expenseDoc => {
@@ -558,17 +558,11 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
       const memberDetailToRemove = groupData.memberDetails.find(m => m.uid === memberIdToRemove);
 
       if (!memberDetailToRemove && groupData.memberIds.includes(memberIdToRemove)) {
-         // This case could happen if memberDetails is somehow out of sync.
-         // For robustness, allow removal based on memberId if detail isn't found but ID is present.
-         // However, this indicates a potential data integrity issue elsewhere.
          console.warn(`Member detail for UID ${memberIdToRemove} not found in group ${groupId}, but ID was in memberIds. Proceeding with ID removal.`);
       }
 
-
       if (groupData.memberIds.length === 1 && groupData.memberIds.includes(memberIdToRemove)) {
-        // If removing the last member, delete the group.
         transaction.delete(groupRef);
-        // Consider deleting associated expenses or splits, or handle via backend functions.
       } else {
         const updatePayload: { memberIds: any, memberDetails?: any, updatedAt: Timestamp } = {
             memberIds: arrayRemove(memberIdToRemove),
@@ -605,35 +599,37 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
     if (!splitData.originalExpenseDescription) throw new Error("Original expense description is required.");
     if (splitData.participants.length === 0) throw new Error("At least one participant is required.");
 
-    // Validate participants based on splitMethod
-    let calculatedTotalOwed = 0;
+    let validatedParticipants = [...splitData.participants];
+
     if (splitData.splitMethod === 'byAmount') {
-      calculatedTotalOwed = splitData.participants.reduce((sum, p) => sum + p.amountOwed, 0);
-      if (Math.abs(calculatedTotalOwed - splitData.totalAmount) > 0.01) { // Tolerance for floating point
-        throw new Error("Sum of amounts owed by participants does not match total expense amount.");
+      const calculatedTotalOwed = validatedParticipants.reduce((sum, p) => sum + p.amountOwed, 0);
+      if (Math.abs(calculatedTotalOwed - splitData.totalAmount) > 0.01) {
+        throw new Error(`Sum of amounts owed (${calculatedTotalOwed.toFixed(2)}) by participants does not match total expense amount (${splitData.totalAmount.toFixed(2)}).`);
       }
     } else if (splitData.splitMethod === 'byPercentage') {
-      const totalPercentage = splitData.participants.reduce((sum, p) => sum + (p.percentage || 0), 0);
-      if (Math.abs(totalPercentage - 100) > 0.01) { // Tolerance
-        throw new Error("Sum of percentages does not equal 100%.");
+      const totalPercentage = validatedParticipants.reduce((sum, p) => sum + (p.percentage || 0), 0);
+      if (Math.abs(totalPercentage - 100) > 0.01) {
+        throw new Error(`Sum of percentages (${totalPercentage.toFixed(2)}%) does not equal 100%.`);
       }
-      // Calculate amountOwed for each participant based on percentage
-      splitData.participants = splitData.participants.map(p => ({
+      validatedParticipants = validatedParticipants.map(p => ({
         ...p,
-        amountOwed: (splitData.totalAmount * (p.percentage || 0)) / 100,
+        amountOwed: parseFloat(((splitData.totalAmount * (p.percentage || 0)) / 100).toFixed(2)),
       }));
     } else if (splitData.splitMethod === 'equally') {
-      const numParticipants = splitData.participants.length;
+      const numParticipants = validatedParticipants.length;
       if (numParticipants === 0) throw new Error("Cannot split equally with zero participants.");
-      const amountPerPerson = splitData.totalAmount / numParticipants;
-      splitData.participants = splitData.participants.map(p => ({
-        ...p,
-        amountOwed: amountPerPerson,
-      }));
+      const amountPerPerson = parseFloat((splitData.totalAmount / numParticipants).toFixed(2));
+      // Adjust for rounding for the last participant
+      validatedParticipants = validatedParticipants.map((p, index) => {
+        if (index === numParticipants - 1) {
+            const sumOfOthers = validatedParticipants.slice(0, index).reduce((acc, curr) => acc + curr.amountOwed, 0);
+            return {...p, amountOwed: parseFloat((splitData.totalAmount - sumOfOthers).toFixed(2))};
+        }
+        return {...p, amountOwed: amountPerPerson};
+      });
     }
 
-
-    const involvedUserIds = Array.from(new Set([splitData.paidBy, ...splitData.participants.map(p => p.userId)]));
+    const involvedUserIds = Array.from(new Set([splitData.paidBy, ...validatedParticipants.map(p => p.userId)]));
 
     const dataToSave: Omit<SplitExpense, 'id'> = {
       originalExpenseId: splitData.originalExpenseId,
@@ -641,11 +637,12 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
       splitMethod: splitData.splitMethod,
       totalAmount: splitData.totalAmount,
       paidBy: splitData.paidBy,
-      participants: splitData.participants,
+      participants: validatedParticipants,
       involvedUserIds,
       groupId: splitData.groupId || undefined,
       notes: splitData.notes || '',
       createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
     };
 
     const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), dataToSave);
@@ -669,9 +666,30 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
       id: docSnap.id,
       ...docSnap.data(),
       createdAt: docSnap.data().createdAt as Timestamp,
+      updatedAt: docSnap.data().updatedAt as Timestamp,
     } as SplitExpense));
   } catch (error) {
     console.error("Error getting split expenses for user: ", error);
+    throw error;
+  }
+}
+
+export async function getSplitExpenseById(splitExpenseId: string): Promise<SplitExpense | null> {
+  try {
+    const docRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        ...data,
+        createdAt: data.createdAt as Timestamp,
+        updatedAt: data.updatedAt as Timestamp,
+      } as SplitExpense;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting split expense by ID: ", error);
     throw error;
   }
 }
@@ -689,6 +707,7 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
       id: docSnap.id,
       ...docSnap.data(),
       createdAt: docSnap.data().createdAt as Timestamp,
+      updatedAt: docSnap.data().updatedAt as Timestamp,
     } as SplitExpense));
   } catch (error) {
     console.error("Error getting split expenses by group ID: ", error);
@@ -730,42 +749,68 @@ export async function deleteSplitExpense(splitExpenseId: string): Promise<void> 
 }
 
 export async function updateSplitExpense(splitExpenseId: string, data: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'>>): Promise<void> {
+  const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
   try {
-    const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
-    // Basic update for now, primarily for notes or simple fields.
-    // Full updates involving participants or splitMethod would require more complex logic and validation similar to createSplitExpense.
-    const updateData: { [key: string]: any } = { ...data, updatedAt: Timestamp.now() };
-
-    // If participants are part of the update, ensure validation (this is a placeholder for more complex logic)
-    if (data.participants && data.totalAmount && data.splitMethod) {
-        // Re-validate participants based on splitMethod (simplified version)
-        let calculatedTotalOwed = 0;
-        if (data.splitMethod === 'byAmount') {
-            calculatedTotalOwed = data.participants.reduce((sum, p) => sum + p.amountOwed, 0);
-            if (Math.abs(calculatedTotalOwed - data.totalAmount) > 0.01) {
-                throw new Error("Sum of amounts owed by participants does not match total expense amount for update.");
-            }
-        } else if (data.splitMethod === 'byPercentage') {
-            const totalPercentage = data.participants.reduce((sum, p) => sum + (p.percentage || 0), 0);
-            if (Math.abs(totalPercentage - 100) > 0.01) {
-                throw new Error("Sum of percentages does not equal 100% for update.");
-            }
-            updateData.participants = data.participants.map(p => ({
-                ...p,
-                amountOwed: (data.totalAmount! * (p.percentage || 0)) / 100,
-            }));
-        } else if (data.splitMethod === 'equally') {
-            const numParticipants = data.participants.length;
-            if (numParticipants === 0) throw new Error("Cannot split equally with zero participants for update.");
-            const amountPerPerson = data.totalAmount / numParticipants;
-            updateData.participants = data.participants.map(p => ({
-                ...p,
-                amountOwed: amountPerPerson,
-            }));
-        }
+    // Fetch the existing document to preserve originalExpenseId, originalExpenseDescription, paidBy, groupId, createdAt, involvedUserIds
+    const existingSplitDoc = await getDoc(splitExpenseRef);
+    if (!existingSplitDoc.exists()) {
+      throw new Error("Split expense document not found for update.");
     }
+    const existingSplitData = existingSplitDoc.data() as SplitExpense;
 
-    await updateDoc(splitExpenseRef, updateData);
+    const newTotalAmount = data.totalAmount !== undefined ? data.totalAmount : existingSplitData.totalAmount;
+    const newSplitMethod = data.splitMethod || existingSplitData.splitMethod;
+    let newParticipants = data.participants || existingSplitData.participants;
+
+    // Recalculate and validate participants if method or amounts/percentages change
+    if (data.splitMethod || data.participants || data.totalAmount !== undefined) {
+      if (newSplitMethod === 'byAmount') {
+        const calculatedTotalOwed = newParticipants.reduce((sum, p) => sum + p.amountOwed, 0);
+        if (Math.abs(calculatedTotalOwed - newTotalAmount) > 0.01) {
+          throw new Error(`Sum of amounts owed (${calculatedTotalOwed.toFixed(2)}) by participants does not match total expense amount (${newTotalAmount.toFixed(2)}).`);
+        }
+      } else if (newSplitMethod === 'byPercentage') {
+        const totalPercentage = newParticipants.reduce((sum, p) => sum + (p.percentage || 0), 0);
+        if (Math.abs(totalPercentage - 100) > 0.01) {
+          throw new Error(`Sum of percentages (${totalPercentage.toFixed(2)}%) does not equal 100%.`);
+        }
+        newParticipants = newParticipants.map(p => ({
+          ...p,
+          amountOwed: parseFloat(((newTotalAmount * (p.percentage || 0)) / 100).toFixed(2)),
+        }));
+      } else if (newSplitMethod === 'equally') {
+        const numParticipants = newParticipants.length;
+        if (numParticipants === 0) throw new Error("Cannot split equally with zero participants.");
+        const amountPerPerson = parseFloat((newTotalAmount / numParticipants).toFixed(2));
+        newParticipants = newParticipants.map((p, index) => {
+            if (index === numParticipants - 1) {
+                const sumOfOthers = newParticipants.slice(0, index).reduce((acc, curr) => acc + curr.amountOwed, 0);
+                return {...p, amountOwed: parseFloat((newTotalAmount - sumOfOthers).toFixed(2))};
+            }
+            return {...p, amountOwed: amountPerPerson};
+        });
+      }
+    }
+    
+    const updatePayload: Partial<SplitExpense> = {
+        ...data, // Includes notes, or any other direct fields passed in
+        participants: newParticipants, // Use the potentially recalculated participants
+        splitMethod: newSplitMethod,
+        totalAmount: newTotalAmount,
+        updatedAt: Timestamp.now(),
+    };
+
+    // Fields that should not be changed by this generic update
+    delete updatePayload.originalExpenseId;
+    delete updatePayload.originalExpenseDescription;
+    delete updatePayload.paidBy;
+    delete updatePayload.groupId;
+    delete updatePayload.createdAt;
+    delete updatePayload.involvedUserIds;
+
+
+    await updateDoc(splitExpenseRef, updatePayload as { [key: string]: any });
+
   } catch (error) {
     console.error("Error updating split expense: ", error);
     throw error;
@@ -864,7 +909,3 @@ export async function deleteReminder(reminderId: string): Promise<void> {
     throw error;
   }
 }
-
-
-import { setDoc } from 'firebase/firestore';
-// Usage: await setDoc(userRef, data, { merge: true });

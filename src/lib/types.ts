@@ -35,32 +35,32 @@ export type ExpenseFormData = {
   notes?: string;
   groupId?: string; // Optional group ID
   groupName?: string; // Optional: passed to firestore, derived from selected group
-  receiptUrl?: string; // Added for managing uploads
-  receiptFile?: File | null; // For handling file input
+  receiptUrl?: string;
+  receiptFile?: File | null;
 };
 
 export interface UserProfile {
   uid: string;
   email: string;
-  displayName?: string; // Can be added later or during profile setup
+  displayName?: string;
   createdAt: Timestamp;
 }
 
 export interface FriendRequest {
-  id: string; // Firestore document ID
+  id: string;
   fromUserId: string;
-  fromUserEmail: string; // Denormalized for display in recipient's UI
-  fromUserDisplayName?: string; // Denormalized
+  fromUserEmail: string;
+  fromUserDisplayName?: string;
   toUserId: string;
-  toUserEmail: string; // For querying/security rules
-  status: 'pending'; // We will delete on accept/reject, so 'pending' is the main status
+  toUserEmail: string;
+  status: 'pending';
   createdAt: Timestamp;
 }
 
 export interface Friend {
-  uid: string; // Friend's User ID (also the document ID in the subcollection)
-  email: string; // Denormalized
-  displayName?: string; // Denormalized
+  uid: string;
+  email: string;
+  displayName?: string;
   addedAt: Timestamp;
 }
 
@@ -73,39 +73,38 @@ export interface GroupMemberDetail {
 export interface Group {
   id: string;
   name: string;
-  createdBy: string; // UID of the creator
+  createdBy: string;
   createdAt: Timestamp;
-  memberIds: string[]; // Array of UIDs of members
-  memberDetails: GroupMemberDetail[]; // Denormalized for display
+  memberIds: string[];
+  memberDetails: GroupMemberDetail[];
 }
 
-// Types for Expense Splitting
 export type SplitMethod = "equally" | "byAmount" | "byPercentage";
 
 export interface SplitParticipant {
   userId: string;
   displayName?: string;
   email?: string;
-  amountOwed: number; // For 'equally' and 'byAmount', this is the final amount. For 'byPercentage', this is calculated.
-  percentage?: number; // Only for 'byPercentage'. Value from 0 to 100.
+  amountOwed: number;
+  percentage?: number;
   isSettled: boolean;
 }
 
 export interface SplitExpense {
-  id?: string; // Firestore document ID
+  id?: string;
   originalExpenseId: string;
-  originalExpenseDescription: string; // Denormalized for easy display
+  originalExpenseDescription: string;
   splitMethod: SplitMethod;
   totalAmount: number;
-  paidBy: string; // UID of the user who paid the original expense
+  paidBy: string;
   participants: SplitParticipant[];
-  involvedUserIds: string[]; // Array of UIDs for querying (payer + participants)
-  groupId?: string; // Optional, if split originated from a group expense
+  involvedUserIds: string[];
+  groupId?: string;
   createdAt: Timestamp;
+  updatedAt?: Timestamp;
   notes?: string;
 }
 
-// Types for Reminders
 export type RecurrenceType = "none" | "daily" | "weekly" | "monthly" | "yearly";
 
 export interface Reminder {
@@ -113,7 +112,7 @@ export interface Reminder {
   userId: string;
   title: string;
   notes?: string;
-  dueDate: string; // Stored as YYYY-MM-DD string, converted to Timestamp on save
+  dueDate: string;
   recurrence: RecurrenceType;
   isCompleted: boolean;
   createdAt: Timestamp;
@@ -123,11 +122,10 @@ export interface Reminder {
 export type ReminderFormData = {
   title: string;
   notes?: string;
-  dueDate: string; // YYYY-MM-DD
+  dueDate: string;
   recurrence: RecurrenceType;
 };
 
-// Type for Group Balances display
 export interface GroupMemberBalance {
   uid: string;
   displayName: string;

@@ -53,27 +53,26 @@ const navItems: NavItem[] = [
 
 const getPageTitle = (pathname: string, items: NavItem[]): string => {
   for (const item of items) {
-    if (item.href === pathname && !item.submenu) return item.title; // Exact match for non-submenu items
-    if (pathname.startsWith(item.href) && item.submenu) { // Parent title for submenus or base path of a feature
-        // Check for exact submenu match
+    if (item.href === pathname && !item.submenu) return item.title; 
+    if (pathname.startsWith(item.href) && item.submenu) { 
         for (const subItem of item.submenu) {
-            if (subItem.href === pathname) return item.title; // Or subItem.title if preferred
+            if (subItem.href === pathname) return item.title; 
         }
-        // Fallback for pages under a main nav item that aren't explicitly in submenu
         if (item.href !== '/dashboard' && pathname.startsWith(item.href + '/')) {
-             // Special handling for dynamic routes
             if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
-            if (pathname.startsWith('/expenses/view/')) return 'View Expense'; // Example
+            if (pathname.startsWith('/expenses/view/')) return 'View Expense'; 
             if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
-            return item.title; // Default to parent title
+            if (pathname.startsWith('/split/edit/')) return 'Edit Split';
+            return item.title; 
         }
-        if (item.href === pathname) return item.title; // If it's the base path of a submenu item
+        if (item.href === pathname) return item.title; 
     }
   }
-   // Specific dynamic routes not covered by general logic
   if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense';
   if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
-  if (pathname === '/expenses/scan') return 'Scan Receipt'; // For specific non-dynamic sub-paths not in menus
+  if (pathname === '/expenses/scan') return 'Scan Receipt';
+  if (pathname.startsWith('/split/edit/')) return 'Edit Split';
+
 
   const defaultTitle = items.find(item => item.href === '/dashboard')?.title || 'ExpenseFlow';
   return pathname === '/dashboard' ? defaultTitle : 'ExpenseFlow';

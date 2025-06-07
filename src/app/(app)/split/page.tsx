@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,12 +31,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 
 export default function SplitExpensesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -51,6 +53,7 @@ export default function SplitExpensesPage() {
   const [splitMethod, setSplitMethod] = useState<SplitMethod>('equally');
   const [participantValues, setParticipantValues] = useState<Record<string, { amount?: string; percentage?: string }>>({});
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string>("");
 
 
   const [savedSplits, setSavedSplits] = useState<SplitExpense[]>([]);
@@ -100,9 +103,9 @@ export default function SplitExpensesPage() {
   }, [fetchAllData]);
   
   useEffect(() => {
-    // Reset participant values when split method or selected friends change
     setParticipantValues({});
     setValidationError(null);
+    setNotes(selectedExpense?.notes || "");
   }, [splitMethod, selectedFriendsToSplit, selectedExpense]);
 
 
@@ -112,7 +115,7 @@ export default function SplitExpensesPage() {
 
   const activeParticipants = useMemo(() => {
     if (!currentUserProfile) return [];
-    const participants: UserProfile[] = [currentUserProfile];
+    const participants: UserProfile[] = [currentUserProfile]; // Payer is always included
     Object.entries(selectedFriendsToSplit).forEach(([friendId, isSelected]) => {
       if (isSelected) {
         const friendProfile = friends.find(f => f.uid === friendId);
@@ -121,7 +124,7 @@ export default function SplitExpensesPage() {
             uid: friendProfile.uid,
             email: friendProfile.email,
             displayName: friendProfile.displayName || friendProfile.email,
-            createdAt: friendProfile.addedAt, // Or a default Timestamp if needed
+            createdAt: friendProfile.addedAt, 
           });
         }
       }
@@ -143,11 +146,11 @@ export default function SplitExpensesPage() {
     setParticipantValues(prev => ({
       ...prev,
       [userId]: {
-        ...prev[userId],
+        ...prev[userId], // Keep other type's value if it exists
         [type]: value,
       },
     }));
-    setValidationError(null); // Clear validation error on input change
+    setValidationError(null); 
   };
 
   const calculatedTotals = useMemo(() => {
@@ -181,6 +184,7 @@ export default function SplitExpensesPage() {
     setSplitMethod('equally');
     setParticipantValues({});
     setValidationError(null);
+    setNotes(expense.notes || `Split of: ${expense.description}`);
   };
 
   const handleClearSelection = () => {
@@ -188,7 +192,8 @@ export default function SplitExpensesPage() {
     setSelectedFriendsToSplit({});
     setSplitMethod('equally');
     setParticipantValues({});
-     setValidationError(null);
+    setValidationError(null);
+    setNotes("");
   };
 
   const handleToggleFriendSelection = (friendId: string) => {
@@ -200,19 +205,19 @@ export default function SplitExpensesPage() {
 
   const validateSplit = (): boolean => {
     if (!selectedExpense || numberOfParticipants <= 0) {
-      setValidationError("Please select an expense and at least one participant.");
+      setValidationError("Please select an expense and at least one participant (including yourself).");
       return false;
     }
 
     if (splitMethod === 'byAmount') {
       const sum = activeParticipants.reduce((acc, p) => acc + (parseFloat(participantValues[p.uid]?.amount || '0') || 0), 0);
-      if (Math.abs(sum - selectedExpense.amount) > 0.01) { // Tolerance for floating point
+      if (Math.abs(sum - selectedExpense.amount) > 0.01) { 
         setValidationError(`The sum of amounts (${formatCurrency(sum)}) must equal the total expense amount (${formatCurrency(selectedExpense.amount)}).`);
         return false;
       }
     } else if (splitMethod === 'byPercentage') {
       const sum = activeParticipants.reduce((acc, p) => acc + (parseFloat(participantValues[p.uid]?.percentage || '0') || 0), 0);
-      if (Math.abs(sum - 100) > 0.01) { // Tolerance
+      if (Math.abs(sum - 100) > 0.01) { 
         setValidationError(`The sum of percentages (${sum.toFixed(2)}%) must equal 100%.`);
         return false;
       }
@@ -231,11 +236,11 @@ export default function SplitExpensesPage() {
         });
         return;
     }
-     if (numberOfParticipants === 1 && Object.values(selectedFriendsToSplit).filter(Boolean).length === 0 && splitMethod !== 'equally' && friends.length > 0) {
+     if (numberOfParticipants === 1 && activeParticipants[0]?.uid === currentUserProfile.uid && splitMethod !== 'equally' && friends.length > 0) {
         toast({
             variant: "destructive",
             title: "Cannot Save Split",
-            description: "Please select at least one friend to split the expense with when not splitting equally.",
+            description: "When splitting by amount or percentage with only yourself, please add friends or choose 'Split Equally'.",
         });
         return;
     }
@@ -252,24 +257,22 @@ export default function SplitExpensesPage() {
       let percentage: number | undefined = undefined;
 
       if (splitMethod === 'equally') {
-        amountOwed = selectedExpense.amount / numberOfParticipants;
+        // amountOwed will be calculated by createSplitExpense
       } else if (splitMethod === 'byAmount') {
         amountOwed = parseFloat(participantValues[p.uid]?.amount || '0') || 0;
       } else if (splitMethod === 'byPercentage') {
         percentage = parseFloat(participantValues[p.uid]?.percentage || '0') || 0;
-        // amountOwed will be calculated by createSplitExpense based on this percentage
       }
       
       participants.push({
         userId: p.uid,
         displayName: p.displayName || p.email,
         email: p.email,
-        amountOwed: amountOwed, // For byPercentage, createSplitExpense calculates final amountOwed
+        amountOwed: amountOwed, 
         percentage: percentage,
-        isSettled: p.uid === user.uid, // Payer is always settled initially
+        isSettled: p.uid === user.uid, 
       });
     });
-
 
     const splitData = {
         originalExpenseId: selectedExpense.id!,
@@ -278,7 +281,7 @@ export default function SplitExpensesPage() {
         totalAmount: selectedExpense.amount,
         paidBy: user.uid,
         participants: participants,
-        notes: `Split of expense: ${selectedExpense.description}`,
+        notes: notes || `Split of expense: ${selectedExpense.description}`,
     };
 
     try {
@@ -346,6 +349,11 @@ export default function SplitExpensesPage() {
     if (payer?.userId === currentUserProfile?.uid) return "You";
     return payer?.displayName || payer?.email || "Unknown Payer";
   }
+  
+  const handleEditSplit = (splitId: string) => {
+    router.push(`/split/edit/${splitId}`);
+  };
+
 
   const isLoading = isLoadingExpenses || isLoadingFriends;
 
@@ -353,7 +361,7 @@ export default function SplitExpensesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Split Expenses</h1>
-        <p className="text-muted-foreground">Divide shared costs with your friends.</p>
+        <p className="text-muted-foreground">Divide shared costs with your friends using various methods.</p>
       </div>
 
       {!selectedExpense ? (
@@ -540,6 +548,15 @@ export default function SplitExpensesPage() {
                 )}
             </div>
             )}
+             <div className="space-y-1">
+                <Label htmlFor="split-notes">Notes (Optional)</Label>
+                <Input 
+                    id="split-notes"
+                    placeholder="e.g., Dinner for project launch" 
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                />
+            </div>
             
             {validationError && (
                 <Alert variant="destructive" className="mt-4">
@@ -554,14 +571,14 @@ export default function SplitExpensesPage() {
                 <Button variant="outline" onClick={handleClearSelection} disabled={isSavingSplit}>Cancel / Choose Other</Button>
                 <Button 
                     onClick={handleSaveSplit} 
-                    disabled={isLoading || !selectedExpense || isSavingSplit || numberOfParticipants === 0 || (numberOfParticipants === 1 && friends.length > 0 && splitMethod !== 'equally')}
+                    disabled={isLoading || !selectedExpense || isSavingSplit || numberOfParticipants === 0 || (numberOfParticipants === 1 && activeParticipants[0]?.uid === currentUserProfile?.uid && splitMethod !== 'equally' && friends.length > 0)}
                 >
                     {isSavingSplit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Split
                 </Button>
             </div>
 
-            {friends.length > 0 && numberOfParticipants === 1 && splitMethod !== 'equally' && (
+            {friends.length > 0 && numberOfParticipants === 1 && activeParticipants[0]?.uid === currentUserProfile?.uid && splitMethod !== 'equally' && (
                  <p className="text-xs text-destructive text-right mt-1">Please select at least one friend or split equally.</p>
             )}
 
@@ -595,14 +612,14 @@ export default function SplitExpensesPage() {
                                     <div>
                                         <CardTitle className="text-lg">{split.originalExpenseDescription}</CardTitle>
                                         <CardDescription>
-                                            Total: {formatCurrency(split.totalAmount)} ({split.splitMethod}) | Split on: {format(split.createdAt.toDate(), "MMM dd, yyyy, p")}
+                                            Total: {formatCurrency(split.totalAmount)} ({split.splitMethod}) | Split on: {split.createdAt ? format(split.createdAt.toDate(), "MMM dd, yyyy, p") : 'N/A'}
                                         </CardDescription>
                                         <CardDescription>
                                             Paid by: <span className="font-medium text-foreground">{getPayerDisplayName(split)}</span>
                                         </CardDescription>
                                     </div>
                                     <div className="flex gap-1">
-                                        <Button variant="ghost" size="icon" className="h-7 w-7" disabled onClick={() => toast({title: "Coming Soon", description: "Editing splits will be available soon."})}>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => split.id && handleEditSplit(split.id)}>
                                             <Edit className="h-4 w-4" />
                                             <span className="sr-only">Edit Split</span>
                                         </Button>
@@ -724,4 +741,3 @@ export default function SplitExpensesPage() {
     </div>
   );
 }
-
