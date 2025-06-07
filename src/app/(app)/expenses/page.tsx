@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PlusCircle, ListFilter, Loader2, Edit, Trash2, Users, RefreshCw, XCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser, deleteExpense, getGroupsForUser } from "@/lib/firebase/firestore";
-import type { Expense, Group } from "@/lib/types";
+import type { Expense, Group, RecurrenceType } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -422,6 +422,7 @@ export default function ExpensesPage() {
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Recurrence</TableHead>
                   <TableHead>Group</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -433,6 +434,22 @@ export default function ExpensesPage() {
                     <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
                     <TableCell>{expense.category}</TableCell>
                     <TableCell>{format(parseISO(expense.date), "MMM dd, yyyy")}</TableCell>
+                    <TableCell>
+                      {expense.isRecurring && expense.recurrence && expense.recurrence !== "none" ? (
+                        <div className="flex flex-col text-xs">
+                          <Badge variant="outline" className="capitalize mb-0.5 w-fit">
+                            {expense.recurrence}
+                          </Badge>
+                          {expense.recurrenceEndDate && (
+                            <span className="text-muted-foreground text-[0.7rem]">
+                              Ends: {format(parseISO(expense.recurrenceEndDate), "MMM dd, yy")}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {expense.groupName ? (
                         <Badge variant="secondary" className="flex items-center gap-1 max-w-fit text-xs">
