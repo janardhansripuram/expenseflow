@@ -9,15 +9,26 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse } from "lucide-react";
+import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse, CheckSquare, Handshake } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense, getSplitExpensesForUser } from "@/lib/firebase/firestore";
+import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense, getSplitExpensesForUser, updateSplitParticipantSettlement } from "@/lib/firebase/firestore";
 import type { Expense, Friend, UserProfile, SplitExpense, SplitParticipant } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
 
 export default function SplitExpensesPage() {
   const { user } = useAuth();
@@ -29,6 +40,7 @@ export default function SplitExpensesPage() {
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingFriends, setIsLoadingFriends] = useState(true);
   const [isSavingSplit, setIsSavingSplit] = useState(false);
+  const [isProcessingSettlement, setIsProcessingSettlement] = useState<string | null>(null); // stores splitId-participantId
   
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [selectedFriendsToSplit, setSelectedFriendsToSplit] = useState<Record<string, boolean>>({});
@@ -36,7 +48,7 @@ export default function SplitExpensesPage() {
   const [savedSplits, setSavedSplits] = useState<SplitExpense[]>([]);
   const [isLoadingSavedSplits, setIsLoadingSavedSplits] = useState(true);
 
-  const fetchInitialData = useCallback(async () => {
+  const fetchAllData = useCallback(async () => {
     if (user) {
       setIsLoadingExpenses(true);
       setIsLoadingFriends(true);
@@ -76,8 +88,8 @@ export default function SplitExpensesPage() {
   }, [user, toast]);
 
   useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+    fetchAllData();
+  }, [fetchAllData]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -163,7 +175,6 @@ export default function SplitExpensesPage() {
         paidBy: user.uid,
         participants: participants,
         notes: `Split of expense: ${selectedExpense.description}`,
-        // involvedUserIds will be handled by createSplitExpense
     };
 
     try {
@@ -173,9 +184,7 @@ export default function SplitExpensesPage() {
           description: `Expense "${selectedExpense.description}" has been successfully split.`,
         });
         handleClearSelection();
-        // Refresh saved splits list
-        const updatedSplits = await getSplitExpensesForUser(user.uid);
-        setSavedSplits(updatedSplits);
+        fetchAllData(); // Refresh all data including saved splits
     } catch (error) {
         console.error("Error saving split expense:", error);
         toast({
@@ -185,6 +194,21 @@ export default function SplitExpensesPage() {
         });
     } finally {
         setIsSavingSplit(false);
+    }
+  };
+
+  const handleSettleParticipant = async (splitId: string, participantUserId: string) => {
+    if (!splitId) return;
+    setIsProcessingSettlement(`${splitId}-${participantUserId}`);
+    try {
+        await updateSplitParticipantSettlement(splitId, participantUserId, true);
+        toast({ title: "Settlement Updated", description: "Participant marked as settled."});
+        fetchAllData(); // Refresh splits
+    } catch (error) {
+        console.error("Error settling participant:", error);
+        toast({ variant: "destructive", title: "Update Failed", description: "Could not update settlement status."});
+    } finally {
+        setIsProcessingSettlement(null);
     }
   };
   
@@ -200,6 +224,7 @@ export default function SplitExpensesPage() {
   
   const getPayerDisplayName = (split: SplitExpense): string => {
     const payer = split.participants.find(p => p.userId === split.paidBy);
+    if (payer?.userId === currentUserProfile?.uid) return "You";
     return payer?.displayName || payer?.email || "Unknown Payer";
   }
 
@@ -264,7 +289,6 @@ export default function SplitExpensesPage() {
           </CardContent>
         </Card>
       ) : (
-        // Step 2: Define Split Details (Select Friends)
         <Card className="shadow-lg">
           <CardHeader>
              <div className="flex items-center justify-between">
@@ -295,7 +319,7 @@ export default function SplitExpensesPage() {
                 </div>
             ) : (
               <div className="space-y-3">
-                <Label className="text-base">Select friends to include in the split:</Label>
+                <Label className="text-base">Select friends to include in the split (Paid by You):</Label>
                 <ScrollArea className="h-60 rounded-md border p-2">
                   {friends.map((friend) => (
                     <div key={friend.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
@@ -346,14 +370,13 @@ export default function SplitExpensesPage() {
         </Card>
       )}
 
-    {/* Display Saved Splits */}
     <Card className="shadow-lg mt-8">
         <CardHeader>
             <CardTitle className="font-headline flex items-center">
                 <ListCollapse className="mr-2 h-6 w-6 text-primary" />
                 Split History
             </CardTitle>
-            <CardDescription>Review your previously saved expense splits.</CardDescription>
+            <CardDescription>Review your previously saved expense splits and manage settlements.</CardDescription>
         </CardHeader>
         <CardContent>
             {isLoadingSavedSplits ? (
@@ -378,17 +401,81 @@ export default function SplitExpensesPage() {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <p className="text-sm font-medium mb-2">Participants:</p>
+                                <p className="text-sm font-medium mb-2">Participants & Settlements:</p>
                                 <ul className="space-y-2 text-sm">
                                     {split.participants.map((p, index) => (
                                         <li key={index} className="flex justify-between items-center p-2 rounded-md bg-muted/50">
-                                            <div>
-                                                <span className="font-medium text-foreground">{p.displayName || p.email}</span>
-                                                <span className="text-muted-foreground"> owes {formatCurrency(p.amountOwed)}</span>
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="h-8 w-8">
+                                                    <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(p.displayName, p.email)}`} alt={p.displayName || p.email} data-ai-hint="person avatar"/>
+                                                    <AvatarFallback>{getInitials(p.displayName, p.email)}</AvatarFallback>
+                                                </Avatar>
+                                                <div>
+                                                    <span className="font-medium text-foreground">{p.userId === currentUserProfile?.uid ? "You" : (p.displayName || p.email)}</span>
+                                                    <span className="text-muted-foreground"> owes {formatCurrency(p.amountOwed)}</span>
+                                                </div>
                                             </div>
-                                            <Badge variant={p.isSettled ? "default" : "secondary"} className={p.isSettled ? "bg-green-600 hover:bg-green-700 text-white" : ""}>
-                                                {p.isSettled ? "Settled" : "Owes"}
-                                            </Badge>
+                                            {p.isSettled ? (
+                                                <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-white">
+                                                    <CheckSquare className="mr-1.5 h-3.5 w-3.5" />Settled
+                                                </Badge>
+                                            ) : (
+                                              currentUserProfile?.uid === split.paidBy && p.userId !== currentUserProfile.uid ? (
+                                                <AlertDialog>
+                                                  <AlertDialogTrigger asChild>
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        disabled={isProcessingSettlement === `${split.id}-${p.userId}`}
+                                                        className="text-xs"
+                                                    >
+                                                      {isProcessingSettlement === `${split.id}-${p.userId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Handshake className="mr-1.5 h-3.5 w-3.5"/>}
+                                                      Mark Settled
+                                                    </Button>
+                                                  </AlertDialogTrigger>
+                                                  <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                      <AlertDialogTitle>Confirm Settlement</AlertDialogTitle>
+                                                      <AlertDialogDescription>
+                                                        Are you sure you want to mark {p.displayName || p.email} as settled for {formatCurrency(p.amountOwed)}?
+                                                      </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                      <AlertDialogAction onClick={() => split.id && handleSettleParticipant(split.id, p.userId)}>Confirm</AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                  </AlertDialogContent>
+                                                </AlertDialog>
+                                              ) : currentUserProfile?.uid === p.userId && currentUserProfile.uid !== split.paidBy ? (
+                                                 <AlertDialog>
+                                                  <AlertDialogTrigger asChild>
+                                                    <Button 
+                                                        variant="secondary" 
+                                                        size="sm" 
+                                                        disabled={isProcessingSettlement === `${split.id}-${p.userId}`}
+                                                        className="text-xs"
+                                                    >
+                                                      {isProcessingSettlement === `${split.id}-${p.userId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckSquare className="mr-1.5 h-3.5 w-3.5"/>}
+                                                       I've Paid
+                                                    </Button>
+                                                  </AlertDialogTrigger>
+                                                  <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                      <AlertDialogTitle>Confirm Payment</AlertDialogTitle>
+                                                      <AlertDialogDescription>
+                                                        Are you sure you want to mark your share of {formatCurrency(p.amountOwed)} as paid to {getPayerDisplayName(split)}? This will notify them (conceptually).
+                                                      </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                      <AlertDialogAction onClick={() => split.id && handleSettleParticipant(split.id, p.userId)}>Confirm Payment</AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                  </AlertDialogContent>
+                                                </AlertDialog>
+                                              ) : (
+                                                <Badge variant="secondary">Owes</Badge>
+                                              )
+                                            )}
                                         </li>
                                     ))}
                                 </ul>
@@ -408,3 +495,4 @@ export default function SplitExpensesPage() {
     </div>
   );
 }
+```

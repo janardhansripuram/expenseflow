@@ -137,9 +137,8 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
     if (expenseData.amount) {
       updateData.amount = parseFloat(expenseData.amount);
     }
-    // Handle groupId and groupName updates if necessary, though typically set at creation
-    if (expenseData.hasOwnProperty('groupId')) { // Check if groupId is explicitly being set (even to null/undefined)
-      updateData.groupId = expenseData.groupId || null; // Set to null if undefined to remove
+    if (expenseData.hasOwnProperty('groupId')) { 
+      updateData.groupId = expenseData.groupId || null; 
       updateData.groupName = expenseData.groupName || null;
     }
     
@@ -200,8 +199,8 @@ export async function createUserProfile(userId: string, email: string, displayNa
     const userRef = doc(db, USERS_COLLECTION, userId);
     await setDoc(userRef, {
       uid: userId,
-      email: email.toLowerCase(), // Store email in lowercase for consistent querying
-      displayName: displayName || email.split('@')[0], // Default display name
+      email: email.toLowerCase(),
+      displayName: displayName || email.split('@')[0],
       createdAt: Timestamp.now(),
     });
   } catch (error) {
@@ -238,6 +237,19 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
   }
 }
 
+export async function updateUserProfile(userId: string, data: { displayName?: string }): Promise<void> {
+  try {
+    const userRef = doc(db, USERS_COLLECTION, userId);
+    await updateDoc(userRef, data);
+    // Note: Denormalized displayName in friends lists or groupMemberDetails of other users
+    // would not be updated by this. This requires more complex backend logic (e.g. Cloud Functions)
+    // or fetching fresh profile data at display time.
+  } catch (error) {
+    console.error("Error updating user profile: ", error);
+    throw error;
+  }
+}
+
 // Friend Management Functions
 export async function sendFriendRequest(fromUserId: string, fromUserEmail: string, fromUserDisplayName: string | undefined, toUserEmail: string): Promise<{success: boolean, message: string}> {
   try {
@@ -251,13 +263,11 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
     }
     const toUserId = toUser.uid;
 
-    // Check if already friends
     const friendDoc = await getDoc(doc(db, USERS_COLLECTION, fromUserId, FRIENDS_SUBCOLLECTION, toUserId));
     if (friendDoc.exists()) {
       return { success: false, message: "You are already friends with this user." };
     }
 
-    // Check for existing pending request (either way)
     const q1 = query(collection(db, FRIEND_REQUESTS_COLLECTION), 
       where('fromUserId', '==', fromUserId), 
       where('toUserId', '==', toUserId),
@@ -281,7 +291,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       fromUserEmail,
       fromUserDisplayName: fromUserDisplayName || fromUserEmail.split('@')[0],
       toUserId,
-      toUserEmail: toUser.email, // Use the exact email from the target user's profile
+      toUserEmail: toUser.email, 
       status: 'pending',
       createdAt: Timestamp.now(),
     });
@@ -361,9 +371,9 @@ export async function getFriends(userId: string): Promise<Friend[]> {
   try {
     if (!userId) return [];
     const friendsCollectionRef = collection(db, USERS_COLLECTION, userId, FRIENDS_SUBCOLLECTION);
-    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); // Order by displayName for easier selection
+    const q = query(friendsCollectionRef, orderBy('displayName', 'asc'));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), uid: docSnap.id } as Friend)); // uid is doc.id here
+    return querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), uid: docSnap.id } as Friend));
   } catch (error) {
     console.error("Error getting friends: ", error);
     throw error;
@@ -390,7 +400,7 @@ export async function removeFriend(currentUserId: string, friendUserId: string):
 export async function createGroup(
   creatorProfile: UserProfile,
   groupName: string,
-  initialMemberProfiles: UserProfile[] // Must include creatorProfile
+  initialMemberProfiles: UserProfile[] 
 ): Promise<string> {
   try {
     if (!groupName.trim()) throw new Error("Group name cannot be empty.");
@@ -451,6 +461,28 @@ export async function getGroupDetails(groupId: string): Promise<Group | null> {
   }
 }
 
+export async function updateGroupDetails(groupId: string, data: { name?: string }): Promise<void> {
+  try {
+    const groupRef = doc(db, GROUPS_COLLECTION, groupId);
+    const batch = writeBatch(db);
+
+    batch.update(groupRef, data);
+
+    // If group name changed, update denormalized groupName in expenses
+    if (data.name) {
+      const expensesQuery = query(collection(db, EXPENSES_COLLECTION), where('groupId', '==', groupId));
+      const expensesSnapshot = await getDocs(expensesQuery);
+      expensesSnapshot.forEach(expenseDoc => {
+        batch.update(expenseDoc.ref, { groupName: data.name });
+      });
+    }
+    await batch.commit();
+  } catch (error) {
+    console.error("Error updating group details:", error);
+    throw error;
+  }
+}
+
 export async function addMembersToGroup(groupId: string, newMemberProfiles: UserProfile[]): Promise<void> {
   try {
     if (newMemberProfiles.length === 0) return;
@@ -503,7 +535,6 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
 
       if (!memberDetailToRemove) throw new Error("Member not found in group's detail list.");
 
-      // If the group has only one member and that member is being removed, delete the group.
       if (groupData.memberIds.length === 1 && groupData.memberIds.includes(memberIdToRemove)) {
         transaction.delete(groupRef);
       } else {
@@ -557,13 +588,37 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
     return querySnapshot.docs.map(docSnap => ({
       id: docSnap.id,
       ...docSnap.data(),
-      createdAt: docSnap.data().createdAt as Timestamp, // Ensure createdAt is Timestamp
+      createdAt: docSnap.data().createdAt as Timestamp, 
     } as SplitExpense));
   } catch (error) {
     console.error("Error getting split expenses for user: ", error);
     throw error;
   }
 }
+
+export async function updateSplitParticipantSettlement(splitExpenseId: string, participantUserId: string, newSettledStatus: boolean): Promise<void> {
+  const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const splitDoc = await transaction.get(splitExpenseRef);
+      if (!splitDoc.exists()) {
+        throw new Error("Split expense document not found.");
+      }
+      const splitData = splitDoc.data() as SplitExpense;
+      const updatedParticipants = splitData.participants.map(p => {
+        if (p.userId === participantUserId) {
+          return { ...p, isSettled: newSettledStatus };
+        }
+        return p;
+      });
+      transaction.update(splitExpenseRef, { participants: updatedParticipants });
+    });
+  } catch (error) {
+    console.error("Error updating participant settlement status: ", error);
+    throw error;
+  }
+}
+
 
 // Reminder Functions
 export async function addReminder(userId: string, reminderData: ReminderFormData): Promise<string> {
@@ -593,7 +648,7 @@ export async function getRemindersByUser(userId: string): Promise<Reminder[]> {
     const q = query(
       collection(db, REMINDERS_COLLECTION),
       where('userId', '==', userId),
-      orderBy('dueDate', 'asc') // Or 'createdAt' for creation order
+      orderBy('dueDate', 'asc')
     );
     const querySnapshot = await getDocs(q);
     const reminders: Reminder[] = [];
@@ -658,7 +713,5 @@ export async function deleteReminder(reminderId: string): Promise<void> {
 }
 
 
-// Helper function for setting document with merge option (useful for createUserProfile if we want to update)
 import { setDoc } from 'firebase/firestore';
-// Usage: await setDoc(userRef, data, { merge: true }); // if you want to merge with existing doc
-
+// Usage: await setDoc(userRef, data, { merge: true });

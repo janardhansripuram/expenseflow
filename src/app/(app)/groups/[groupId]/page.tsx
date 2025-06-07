@@ -4,6 +4,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -11,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,14 +36,20 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId } from "@/lib/firebase/firestore";
+import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails } from "@/lib/firebase/firestore";
 import type { Group, Friend, UserProfile, GroupMemberDetail, Expense } from "@/lib/types";
 import Image from "next/image";
 import { format } from "date-fns";
 import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
+
+const groupNameSchema = z.object({
+  name: z.string().min(1, "Group name is required").max(100, "Group name must be 100 characters or less"),
+});
+type GroupNameFormData = z.infer<typeof groupNameSchema>;
+
 
 export default function GroupDetailsPage() {
   const { user } = useAuth();
@@ -55,24 +65,37 @@ export default function GroupDetailsPage() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
-  const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null); // memberId being added/removed
+  const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null);
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<Record<string, boolean>>({});
 
   const [isSplitExpenseDialogOpen, setIsSplitExpenseDialogOpen] = useState(false);
   const [expenseToSplit, setExpenseToSplit] = useState<Expense | null>(null);
 
-  const fetchGroupData = useCallback(async () => {
+  const [isEditGroupNameDialogOpen, setIsEditGroupNameDialogOpen] = useState(false);
+  const [isSavingGroupName, setIsSavingGroupName] = useState(false);
+
+  const groupNameForm = useForm<GroupNameFormData>({
+    resolver: zodResolver(groupNameSchema),
+    defaultValues: { name: "" },
+  });
+
+  const fetchGroupData = useCallback(async (refreshExpenses = false) => {
     if (!user || !groupId) return;
-    setIsLoading(true);
+    if (!refreshExpenses) setIsLoading(true); // Only show main loader if not just refreshing expenses
     setIsLoadingExpenses(true);
     try {
-      const [groupData, userFriends, profile, expensesForGroup] = await Promise.all([
+      const promises: any[] = [
         getGroupDetails(groupId),
-        getFriends(user.uid),
-        getUserProfile(user.uid),
         getExpensesByGroupId(groupId)
-      ]);
+      ];
+      // Only fetch friends and profile if not already loaded or if main load
+      if (!friends.length || !currentUserProfile || !refreshExpenses) {
+        promises.splice(1,0, getFriends(user.uid));
+        promises.splice(2,0, getUserProfile(user.uid));
+      }
+      
+      const [groupData, fetchedFriends, fetchedProfile, expensesForGroup] = await Promise.all(promises.length === 4 ? promises : [promises[0], friends, currentUserProfile, promises[1]]);
 
       if (!groupData) {
         toast({ variant: "destructive", title: "Error", description: "Group not found." });
@@ -86,8 +109,9 @@ export default function GroupDetailsPage() {
       }
       
       setGroup(groupData);
-      setFriends(userFriends);
-      setCurrentUserProfile(profile);
+      groupNameForm.setValue("name", groupData.name); // For edit dialog
+      if (fetchedFriends) setFriends(fetchedFriends);
+      if (fetchedProfile) setCurrentUserProfile(fetchedProfile);
       setGroupExpenses(expensesForGroup);
 
     } catch (error) {
@@ -97,7 +121,7 @@ export default function GroupDetailsPage() {
       setIsLoading(false);
       setIsLoadingExpenses(false);
     }
-  }, [user, groupId, toast, router]);
+  }, [user, groupId, toast, router, friends, currentUserProfile, groupNameForm]);
 
   useEffect(() => {
     fetchGroupData();
@@ -177,6 +201,30 @@ export default function GroupDetailsPage() {
     setIsSplitExpenseDialogOpen(true);
   };
 
+  const handleEditGroupName = async (values: GroupNameFormData) => {
+    if (!group || !user || user.uid !== group.createdBy) {
+      toast({ variant: "destructive", title: "Unauthorized", description: "Only the group creator can edit the group name." });
+      return;
+    }
+    setIsSavingGroupName(true);
+    try {
+      await updateGroupDetails(groupId, { name: values.name });
+      toast({ title: "Group Name Updated", description: `Group name changed to "${values.name}".` });
+      setGroup(prev => prev ? { ...prev, name: values.name } : null);
+      setIsEditGroupNameDialogOpen(false);
+      // No need to call fetchGroupData here if only name changes locally,
+      // but if other parts of groupData could be stale, fetch it.
+      // We also need to refresh expenses if groupName is denormalized there.
+      fetchGroupData(true); // Refresh expenses to get updated groupName if it's on expenses
+    } catch (error) {
+      console.error("Error updating group name:", error);
+      toast({ variant: "destructive", title: "Update Failed", description: "Could not update group name." });
+    } finally {
+      setIsSavingGroupName(false);
+    }
+  };
+
+
   const getInitials = (name?: string, email?: string) => {
     if (name) {
       const parts = name.split(' ');
@@ -226,8 +274,50 @@ export default function GroupDetailsPage() {
             <span className="sr-only">Back to Groups</span>
           </Link>
         </Button>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight font-headline text-primary">{group.name}</h1>
+        <div className="flex-grow">
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight font-headline text-primary">{group.name}</h1>
+            {isCurrentUserCreator && (
+              <Dialog open={isEditGroupNameDialogOpen} onOpenChange={setIsEditGroupNameDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
+                    <Edit2 className="h-5 w-5" />
+                    <span className="sr-only">Edit Group Name</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Edit Group Name</DialogTitle>
+                    <DialogDescription>Change the name of your group.</DialogDescription>
+                  </DialogHeader>
+                  <Form {...groupNameForm}>
+                    <form onSubmit={groupNameForm.handleSubmit(handleEditGroupName)} className="space-y-4 py-2">
+                      <FormField
+                        control={groupNameForm.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>New Group Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Enter new group name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <DialogFooter>
+                        <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                        <Button type="submit" disabled={isSavingGroupName}>
+                          {isSavingGroupName ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4"/>}
+                          Save Name
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </Form>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
           <p className="text-muted-foreground">
             Created by: {creatorDetails?.displayName || creatorDetails?.email || 'Unknown'}
             <span className="mx-2">|</span>
@@ -407,15 +497,15 @@ export default function GroupDetailsPage() {
                                           Added by: {group.memberDetails.find(m => m.uid === expense.userId)?.displayName || group.memberDetails.find(m => m.uid === expense.userId)?.email || 'Unknown user'}
                                        </p>
                                      </div>
-                                     <div className="text-right">
+                                     <div className="text-right flex flex-col items-end gap-1">
                                         <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
                                         <Button 
                                             variant="outline" 
                                             size="sm" 
-                                            className="mt-1 text-xs"
+                                            className="text-xs"
                                             onClick={() => handleOpenSplitDialog(expense)}
                                         >
-                                            <Split className="mr-1.5 h-3.5 w-3.5"/> Split
+                                            <Split className="mr-1.5 h-3.5 w-3.5"/> Split This Expense
                                         </Button>
                                      </div>
                                    </div>
@@ -443,18 +533,18 @@ export default function GroupDetailsPage() {
       
       <Card className="shadow-lg mt-6">
         <CardHeader>
-          <CardTitle className="font-headline flex items-center"><Edit className="mr-2 h-5 w-5"/>Group Settings</CardTitle>
-          <CardDescription>Manage group settings (Coming Soon).</CardDescription>
+          <CardTitle className="font-headline flex items-center"><ShieldAlert className="mr-2 h-5 w-5"/>Admin & Advanced Settings</CardTitle>
+          <CardDescription>Further group management options (e.g., group balances, transfer ownership) are planned for future updates.</CardDescription>
         </CardHeader>
         <CardContent>
-            <p className="text-muted-foreground">Functionality to edit group name and other group-specific settings will be available here in a future update.</p>
+            <p className="text-muted-foreground">Functionality to calculate group balances, settle debts within the group, and manage advanced settings will be available here in a future update.</p>
             <Image 
-                src="https://placehold.co/600x200.png?text=Group+Settings+UI"
-                alt="Placeholder for group settings UI"
+                src="https://placehold.co/600x200.png?text=Advanced+Group+Features"
+                alt="Placeholder for advanced group features UI"
                 width={600}
                 height={200}
                 className="rounded-md mx-auto border shadow-sm my-4"
-                data-ai-hint="settings gear interface"
+                data-ai-hint="dashboard charts analytics"
             />
         </CardContent>
       </Card>
@@ -470,3 +560,4 @@ export default function GroupDetailsPage() {
     </div>
   );
 }
+```
