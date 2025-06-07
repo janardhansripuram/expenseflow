@@ -115,7 +115,7 @@ export default function SplitExpensesPage() {
 
   const activeParticipants = useMemo(() => {
     if (!currentUserProfile) return [];
-    const participants: UserProfile[] = [currentUserProfile]; // Payer is always included
+    const participants: UserProfile[] = [currentUserProfile]; 
     Object.entries(selectedFriendsToSplit).forEach(([friendId, isSelected]) => {
       if (isSelected) {
         const friendProfile = friends.find(f => f.uid === friendId);
@@ -146,7 +146,7 @@ export default function SplitExpensesPage() {
     setParticipantValues(prev => ({
       ...prev,
       [userId]: {
-        ...prev[userId], // Keep other type's value if it exists
+        ...prev[userId], 
         [type]: value,
       },
     }));

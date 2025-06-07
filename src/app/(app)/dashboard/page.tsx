@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -22,8 +22,8 @@ interface ChartDataItem {
 export default function DashboardPage() {
   const { user } = useAuth();
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
+  const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
-  const [dashboardChartData, setDashboardChartData] = useState<ChartDataItem[]>([]);
   const [isLoadingChartData, setIsLoadingChartData] = useState(true);
 
   useEffect(() => {
@@ -33,25 +33,12 @@ export default function DashboardPage() {
         setIsLoadingChartData(true);
         try {
           const expensesPromise = getRecentExpensesByUser(user.uid, 3);
-          const allExpensesPromise = getExpensesByUser(user.uid); // Fetch all for chart (can be optimized for date range later)
+          const allExpensesPromise = getExpensesByUser(user.uid); 
 
           const [recent, allUserExpenses] = await Promise.all([expensesPromise, allExpensesPromise]);
           
           setRecentExpenses(recent);
-
-          if (allUserExpenses.length > 0) {
-            const dataByCat = allUserExpenses.reduce((acc, expense) => {
-              acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
-              return acc;
-            }, {} as Record<string, number>);
-            const chartData = Object.entries(dataByCat)
-              .map(([category, total]) => ({ category, total }))
-              .sort((a, b) => b.total - a.total)
-              .slice(0, 5); // Show top 5 categories
-            setDashboardChartData(chartData);
-          } else {
-            setDashboardChartData([]);
-          }
+          setAllUserExpensesForChart(allUserExpenses);
 
         } catch (error) {
           console.error("Failed to fetch dashboard data:", error);
@@ -61,13 +48,29 @@ export default function DashboardPage() {
         }
       } else {
         setRecentExpenses([]);
-        setDashboardChartData([]);
+        setAllUserExpensesForChart([]);
         setIsLoadingExpenses(false);
         setIsLoadingChartData(false);
       }
     }
     fetchDashboardData();
   }, [user]);
+
+  const dashboardChartData = useMemo(() => {
+    if (!allUserExpensesForChart || allUserExpensesForChart.length === 0) {
+      return [];
+    }
+    const dataByCat = allUserExpensesForChart.reduce((acc, expense) => {
+      acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    return Object.entries(dataByCat)
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5); // Show top 5 categories
+  }, [allUserExpensesForChart]);
+
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -180,7 +183,7 @@ export default function DashboardPage() {
               </div>
             ) : (
                  <div className="flex flex-col items-center text-center h-[200px] justify-center">
-                     <BarChart3 className="h-12 w-12 text-muted-foreground mb-2" />
+                     <BarChart3 className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
                      <p className="text-sm text-muted-foreground mb-4">Add expenses to see your spending overview.</p>
                  </div>
             )}

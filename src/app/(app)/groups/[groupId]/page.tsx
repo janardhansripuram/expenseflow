@@ -72,15 +72,11 @@ export default function GroupDetailsPage() {
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [groupExpenses, setGroupExpenses] = useState<Expense[]>([]);
   const [splitExpensesForGroup, setSplitExpensesForGroup] = useState<SplitExpense[]>([]);
-  const [groupMemberBalances, setGroupMemberBalances] = useState<GroupMemberBalance[]>([]);
-  const [pairwiseDebts, setPairwiseDebts] = useState<PairwiseDebt[]>([]);
   const [activityLog, setActivityLog] = useState<GroupActivityLogEntry[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSplits, setIsLoadingSplits] = useState(true);
-  const [isLoadingBalances, setIsLoadingBalances] = useState(true);
-  const [isLoadingPairwiseDebts, setIsLoadingPairwiseDebts] = useState(true);
   const [isLoadingActivityLog, setIsLoadingActivityLog] = useState(true);
   const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null);
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
@@ -104,18 +100,11 @@ export default function GroupDetailsPage() {
 
     if (refreshAll) {
         setIsLoading(true);
-        setIsLoadingExpenses(true);
-        setIsLoadingSplits(true);
-        setIsLoadingBalances(true);
-        setIsLoadingPairwiseDebts(true);
-        setIsLoadingActivityLog(true);
-    } else {
-        setIsLoadingExpenses(true); 
-        setIsLoadingSplits(true);
-        setIsLoadingBalances(true);
-        setIsLoadingPairwiseDebts(true);
-        setIsLoadingActivityLog(true);
     }
+    // Individual loading states for sections
+    setIsLoadingExpenses(true);
+    setIsLoadingSplits(true);
+    setIsLoadingActivityLog(true);
     
     try {
       const groupDataPromise = getGroupDetails(groupId);
@@ -172,13 +161,10 @@ export default function GroupDetailsPage() {
     fetchGroupData(true); 
   }, []); 
 
-
-  useEffect(() => {
+  const groupMemberBalances = useMemo(() => {
     if (!group || isLoadingExpenses || isLoadingSplits || !currentUserProfile) {
-      setIsLoadingBalances(true);
-      return;
+      return [];
     }
-    setIsLoadingBalances(true);
     
     const balances: Record<string, { paidForGroup: number; owesToOthersInGroup: number }> = {};
     const splitOriginalExpenseIds = new Set(splitExpensesForGroup.map(s => s.originalExpenseId));
@@ -211,7 +197,7 @@ export default function GroupDetailsPage() {
         });
     });
     
-    const finalBalances: GroupMemberBalance[] = group.memberDetails.map(member => {
+    return group.memberDetails.map(member => {
       const paid = balances[member.uid]?.paidForGroup || 0;
       const owed = balances[member.uid]?.owesToOthersInGroup || 0;
       return {
@@ -223,18 +209,12 @@ export default function GroupDetailsPage() {
         netBalance: paid - owed,
       };
     }).sort((a,b) => b.netBalance - a.netBalance); 
-
-    setGroupMemberBalances(finalBalances);
-    setIsLoadingBalances(false);
   }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits, currentUserProfile]);
 
-  useEffect(() => {
-    if (isLoadingBalances || !groupMemberBalances.length || !group) {
-      setIsLoadingPairwiseDebts(true);
-      setPairwiseDebts([]);
-      return;
+  const pairwiseDebts = useMemo(() => {
+    if (groupMemberBalances.length === 0 || !group) {
+      return [];
     }
-    setIsLoadingPairwiseDebts(true);
 
     let mutableDebtors = groupMemberBalances
       .filter(m => m.netBalance < -0.005) 
@@ -268,10 +248,8 @@ export default function GroupDetailsPage() {
       if (creditor.amount < 0.005) mutableCreditors.shift();
     }
     
-    setPairwiseDebts(calculatedDebts);
-    setIsLoadingPairwiseDebts(false);
-
-  }, [groupMemberBalances, isLoadingBalances, group]);
+    return calculatedDebts;
+  }, [groupMemberBalances, group]);
 
 
   const handleToggleFriendSelection = (friendId: string) => {
@@ -318,7 +296,9 @@ export default function GroupDetailsPage() {
         return;
     }
      if (memberIdToRemove === user.uid && group.memberIds.length === 1 && group.createdBy === user.uid) {
+        // Allow if it's the last member and they are the creator (will delete group)
     } else if (memberIdToRemove === user.uid) {
+        // Allow if it's the current user leaving
     } else if (user.uid !== group.createdBy) {
         toast({variant: "destructive", title: "Action Not Allowed", description: "Only the group creator can remove other members."});
         return;
@@ -327,7 +307,7 @@ export default function GroupDetailsPage() {
     setIsProcessingMember(memberIdToRemove);
     try {
       const memberToRemoveProfile = group.memberDetails.find(m => m.uid === memberIdToRemove);
-      await removeMemberFromGroup(groupId, currentUserProfile, memberIdToRemove, memberToRemoveProfile?.displayName || memberToRemoveProfile?.email);
+      await removeMemberFromGroup(groupId, currentUserProfile, memberIdToRemove, memberToRemoveProfile?.displayName || memberToRemoveProfile?.email || 'Unknown User');
       toast({ title: "Member Action Processed", description: "The member has been removed or you have left the group." });
       
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
@@ -401,8 +381,13 @@ export default function GroupDetailsPage() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
-  const friendsNotInGroup = friends.filter(friend => !group?.memberIds.includes(friend.uid));
-  const creatorDetails = group?.memberDetails.find(m => m.uid === group.createdBy);
+  const friendsNotInGroup = useMemo(() => {
+    return friends.filter(friend => !group?.memberIds.includes(friend.uid));
+  }, [friends, group]);
+  
+  const creatorDetails = useMemo(() => {
+    return group?.memberDetails.find(m => m.uid === group.createdBy);
+  }, [group]);
 
   if (isLoading) {
     return (
@@ -717,7 +702,7 @@ export default function GroupDetailsPage() {
                     <CardDescription>Summary of who owes whom within the group based on formalized splits and direct, unsplit expenses.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {isLoadingBalances ? (
+                    {isLoadingExpenses || isLoadingSplits ? ( // Group balances depend on expenses and splits
                         <div className="flex items-center justify-center py-10">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <p className="ml-2">Loading balances...</p>
@@ -845,7 +830,7 @@ export default function GroupDetailsPage() {
                     <CardDescription>A simplified summary of debts within the group to help settle up.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {isLoadingPairwiseDebts ? (
+                    {isLoadingExpenses || isLoadingSplits ? ( // Pairwise debts depend on balances, which depend on expenses/splits
                         <div className="flex items-center justify-center py-10">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <p className="ml-2">Calculating debts...</p>

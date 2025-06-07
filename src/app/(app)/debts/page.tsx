@@ -26,8 +26,7 @@ export default function DebtsPage() {
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [personalSplits, setPersonalSplits] = useState<SplitExpense[]>([]);
-  const [debtSummaries, setDebtSummaries] = useState<DebtSummary[]>([]);
-  
+    
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -58,38 +57,34 @@ export default function DebtsPage() {
     fetchAllData();
   }, [user, toast]);
 
-  useEffect(() => {
-    if (!currentUserProfile || friends.length === 0 && personalSplits.length === 0) {
-        if (!isLoading) setDebtSummaries([]); // Clear if no data and not loading
-        return;
+  const debtSummaries = useMemo(() => {
+    if (!currentUserProfile || (friends.length === 0 && personalSplits.length === 0)) {
+        return [];
     }
 
     const friendMap = new Map(friends.map(f => [f.uid, f]));
     const netDebts: Record<string, number> = {}; // friendUid -> amount
 
     personalSplits.forEach(split => {
-      // Case 1: Current user paid for the split
       if (split.paidBy === currentUserProfile.uid) {
         split.participants.forEach(p => {
           if (p.userId !== currentUserProfile.uid && !p.isSettled) {
-            netDebts[p.userId] = (netDebts[p.userId] || 0) + p.amountOwed; // Friend owes current user
+            netDebts[p.userId] = (netDebts[p.userId] || 0) + p.amountOwed; 
           }
         });
-      }
-      // Case 2: Current user is a participant (and not the payer)
-      else {
+      } else {
         const currentUserParticipant = split.participants.find(p => p.userId === currentUserProfile.uid);
         if (currentUserParticipant && !currentUserParticipant.isSettled) {
-          netDebts[split.paidBy] = (netDebts[split.paidBy] || 0) - currentUserParticipant.amountOwed; // Current user owes friend
+          netDebts[split.paidBy] = (netDebts[split.paidBy] || 0) - currentUserParticipant.amountOwed; 
         }
       }
     });
 
     const summaries: DebtSummary[] = Object.entries(netDebts)
       .map(([friendId, amount]) => {
-        if (Math.abs(amount) < 0.01) return null; // Ignore negligible amounts
+        if (Math.abs(amount) < 0.01) return null; 
         const friend = friendMap.get(friendId);
-        if (!friend) return null; // Friend might have been removed but split exists
+        if (!friend) return null; 
 
         const initials = friend.displayName ? 
           (friend.displayName.split(' ').length > 1 ? `${friend.displayName.split(' ')[0][0]}${friend.displayName.split(' ')[1][0]}` : friend.displayName.substring(0,2))
@@ -105,9 +100,9 @@ export default function DebtsPage() {
       })
       .filter(summary => summary !== null) as DebtSummary[];
       
-    setDebtSummaries(summaries.sort((a,b) => Math.abs(b.netAmount) - Math.abs(a.netAmount))); // Sort by largest absolute amount
+    return summaries.sort((a,b) => Math.abs(b.netAmount) - Math.abs(a.netAmount));
 
-  }, [currentUserProfile, friends, personalSplits, isLoading]);
+  }, [currentUserProfile, friends, personalSplits]);
   
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);

@@ -75,7 +75,6 @@ export default function ExpensesPage() {
   const { toast } = useToast();
 
   const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
-  const [filteredAndSortedExpenses, setFilteredAndSortedExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
@@ -118,7 +117,6 @@ export default function ExpensesPage() {
       }
     } else {
       setAllExpenses([]);
-      setFilteredAndSortedExpenses([]);
       setUserGroups([]);
       setUniqueCategories([]);
       setIsLoading(false);
@@ -135,7 +133,7 @@ export default function ExpensesPage() {
     setTempSort(currentSort);
   }, [isFilterDialogOpen, currentFilters, currentSort]);
 
-  useEffect(() => {
+  const filteredAndSortedExpenses = useMemo(() => {
     let processedExpenses = [...allExpenses];
 
     // Apply search term
@@ -204,8 +202,7 @@ export default function ExpensesPage() {
       return currentSort.sortOrder === 'asc' ? comparison : comparison * -1;
     });
 
-    setFilteredAndSortedExpenses(processedExpenses);
-
+    return processedExpenses;
   }, [allExpenses, currentFilters, currentSort]);
 
 

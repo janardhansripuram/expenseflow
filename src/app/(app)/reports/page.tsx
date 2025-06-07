@@ -40,7 +40,6 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<SummarizeSpendingOutput | null>(null);
@@ -68,10 +67,9 @@ export default function ReportsPage() {
     fetchExpenses();
   }, [user, toast]);
 
-  useEffect(() => {
+  const filteredExpenses = useMemo(() => {
     if (!expenses.length) {
-      setFilteredExpenses([]);
-      return;
+      return [];
     }
 
     const now = new Date();
@@ -84,15 +82,13 @@ export default function ReportsPage() {
         const parsedEndDate = parseISO(customEndDate);
         
         if (parsedStartDate > parsedEndDate) {
-          toast({ variant: "destructive", title: "Invalid Date Range", description: "Start date cannot be after end date." });
-          setFilteredExpenses([]); 
-          return;
+          // toast({ variant: "destructive", title: "Invalid Date Range", description: "Start date cannot be after end date." });
+          return []; 
         }
         startDateFilter = startOfDay(parsedStartDate);
         endDateFilter = endOfDay(parsedEndDate);
       } else {
-        setFilteredExpenses([]); // Clear expenses if custom is selected but dates are not set
-        return;
+        return []; 
       }
     } else if (selectedPeriod === "last7days") {
       startDateFilter = startOfDay(subDays(now, 7));
@@ -104,23 +100,24 @@ export default function ReportsPage() {
       startDateFilter = startOfDay(startOfMonth(now));
       endDateFilter = endOfDay(endOfMonth(now));
     } else if (selectedPeriod === "allTime") {
-      setFilteredExpenses(expenses);
-      setSummaryData(null); // Clear AI summary when switching to all time or from custom without generating
-      return;
+      return expenses;
     }
 
     if (startDateFilter && endDateFilter) {
-      const filtered = expenses.filter(expense => {
-        const expenseDate = parseISO(expense.date); // Dates are stored as 'YYYY-MM-DD'
+      return expenses.filter(expense => {
+        const expenseDate = parseISO(expense.date); 
         return expenseDate >= startDateFilter! && expenseDate <= endDateFilter!;
       });
-      setFilteredExpenses(filtered);
     } else if (selectedPeriod !== "allTime") {
-        setFilteredExpenses([]);
+        return [];
     }
-    setSummaryData(null); // Clear AI summary when period changes
+    return expenses; // Should not be reached if logic is correct, but as fallback
+  }, [expenses, selectedPeriod, customStartDate, customEndDate]);
 
-  }, [expenses, selectedPeriod, customStartDate, customEndDate, toast]);
+  // Effect to clear AI summary when filteredExpenses change (due to period/date change)
+  useEffect(() => {
+    setSummaryData(null);
+  }, [filteredExpenses]);
 
 
   const handleGenerateSummary = async () => {
@@ -219,8 +216,6 @@ export default function ReportsPage() {
       return "";
     }
     const stringField = String(field);
-    // If the field contains a comma, newline, or double quote, wrap it in double quotes.
-    // Also, double up any existing double quotes within the field.
     if (stringField.includes(',') || stringField.includes('\n') || stringField.includes('"')) {
       return `"${stringField.replace(/"/g, '""')}"`;
     }
@@ -235,13 +230,13 @@ export default function ReportsPage() {
 
     const headers = ["Date", "Description", "Category", "Amount", "Notes", "Group Name"];
     const csvRows = [
-      headers.join(','), // Header row
+      headers.join(','), 
       ...filteredExpenses.map(expense => {
         const row = [
           format(parseISO(expense.date), "yyyy-MM-dd"),
           escapeCSVField(expense.description),
           escapeCSVField(expense.category),
-          expense.amount, // Amount is a number, doesn't need escaping typically
+          expense.amount, 
           escapeCSVField(expense.notes),
           escapeCSVField(expense.groupName)
         ];
@@ -335,7 +330,7 @@ export default function ReportsPage() {
                         onChange={(e) => setCustomEndDate(e.target.value)}
                         className="mt-1"
                         min={customStartDate || undefined}
-                        max={format(new Date(), "yyyy-MM-dd")} // Prevent future dates
+                        max={format(new Date(), "yyyy-MM-dd")} 
                     />
                 </div>
             </CardContent>
