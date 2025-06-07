@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PlusCircle, Loader2, Edit, Trash2, TrendingUp } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getIncomeByUser, deleteIncome } from "@/lib/firebase/firestore";
-import type { Income } from "@/lib/types";
+import type { Income, CurrencyCode } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -87,8 +87,8 @@ export default function IncomePage() {
     router.push(`/income/edit/${incomeId}`);
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
   };
 
   return (
@@ -145,7 +145,7 @@ export default function IncomePage() {
                 {incomeList.map((incomeItem) => (
                   <TableRow key={incomeItem.id}>
                     <TableCell className="font-medium max-w-xs truncate" title={incomeItem.source}>{incomeItem.source}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(incomeItem.amount)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(incomeItem.amount, incomeItem.currency)}</TableCell>
                     <TableCell>{format(parseISO(incomeItem.date), "MMM dd, yyyy")}</TableCell>
                     <TableCell className="max-w-sm truncate" title={incomeItem.notes}>{incomeItem.notes || "-"}</TableCell>
                     <TableCell className="text-right">

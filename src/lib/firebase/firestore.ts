@@ -64,7 +64,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
       userId,
       description: expenseData.description,
       amount: parseFloat(expenseData.amount),
-      currency: expenseData.currency || 'USD', // Default to USD if not provided
+      currency: expenseData.currency || 'USD',
       category: expenseData.category,
       date: Timestamp.fromDate(parseISO(expenseData.date)),
       notes: expenseData.notes || '',
@@ -109,7 +109,7 @@ function mapExpenseDocumentToExpenseObject(doc: any): Expense {
     id: doc.id,
     description: data.description,
     amount: data.amount,
-    currency: data.currency || 'USD', // Default to USD if currency is missing
+    currency: data.currency || 'USD',
     category: data.category,
     date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
     notes: data.notes,
@@ -253,6 +253,7 @@ export async function addIncome(userId: string, incomeData: IncomeFormData): Pro
       userId,
       source: incomeData.source,
       amount: parseFloat(incomeData.amount),
+      currency: incomeData.currency || 'USD',
       date: Timestamp.fromDate(parseISO(incomeData.date)),
       notes: incomeData.notes || '',
       createdAt: Timestamp.now(),
@@ -273,6 +274,7 @@ function mapIncomeDocumentToIncomeObject(doc: any): Income {
     userId: data.userId,
     source: data.source,
     amount: data.amount,
+    currency: data.currency || 'USD',
     date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
     notes: data.notes,
     createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
@@ -317,6 +319,7 @@ export async function updateIncome(incomeId: string, incomeData: Partial<IncomeF
 
     if (incomeData.source !== undefined) updateData.source = incomeData.source;
     if (incomeData.amount !== undefined) updateData.amount = parseFloat(incomeData.amount);
+    if (incomeData.currency !== undefined) updateData.currency = incomeData.currency;
     if (incomeData.date !== undefined) updateData.date = Timestamp.fromDate(parseISO(incomeData.date));
     if (incomeData.notes !== undefined) updateData.notes = incomeData.notes;
 

@@ -12,17 +12,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Save, Loader2, CreditCard } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Save, Loader2, CreditCard, Landmark } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getIncomeById, updateIncome } from "@/lib/firebase/firestore";
-import type { IncomeFormData, Income } from "@/lib/types";
+import type { IncomeFormData, Income, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 
 const incomeSchema = z.object({
   source: z.string().min(1, "Source is required"),
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
     message: "Amount must be a positive number",
+  }),
+  currency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), {
+    message: "Invalid currency selected",
   }),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
@@ -43,6 +48,7 @@ export default function EditIncomePage() {
     defaultValues: {
       source: "",
       amount: "",
+      currency: "USD",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
     },
@@ -62,6 +68,7 @@ export default function EditIncomePage() {
         form.reset({
           source: incomeData.source,
           amount: String(incomeData.amount),
+          currency: incomeData.currency || "USD",
           date: incomeData.date, // Already in YYYY-MM-DD from firestore.ts
           notes: incomeData.notes || "",
         });
@@ -137,20 +144,20 @@ export default function EditIncomePage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="source"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Source</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Salary, Freelance Project" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="source"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Source</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., Salary, Freelance Project" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
                 <FormField
                   control={form.control}
                   name="amount"
@@ -160,6 +167,30 @@ export default function EditIncomePage() {
                       <FormControl>
                         <Input type="number" step="0.01" placeholder="e.g., 1000.00" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="currency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select currency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SUPPORTED_CURRENCIES.map(curr => (
+                            <SelectItem key={curr.code} value={curr.code}>
+                              {curr.code} - {curr.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -31,7 +31,7 @@ export interface Expense {
   id?: string; // Firestore document ID
   description: string;
   amount: number;
-  currency: CurrencyCode; // Added currency field
+  currency: CurrencyCode;
   category: string;
   date: string; // Stored as YYYY-MM-DD string from form, converted to Firestore Timestamp on save
   notes?: string;
@@ -49,7 +49,7 @@ export interface Expense {
 export type ExpenseFormData = {
   description: string;
   amount: string; // Input as string, converted to number
-  currency: CurrencyCode; // Added currency field
+  currency: CurrencyCode;
   category: string;
   date: string; // YYYY-MM-DD
   notes?: string;
@@ -68,6 +68,7 @@ export interface Income {
   userId: string;
   source: string;
   amount: number;
+  currency: CurrencyCode;
   date: string; // YYYY-MM-DD
   notes?: string;
   createdAt: string;
@@ -77,6 +78,7 @@ export interface Income {
 export type IncomeFormData = {
   source: string;
   amount: string; // Input as string, converted to number
+  currency: CurrencyCode;
   date: string; // YYYY-MM-DD
   notes?: string;
 };
