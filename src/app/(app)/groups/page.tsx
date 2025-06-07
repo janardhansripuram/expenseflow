@@ -185,7 +185,7 @@ export default function GroupsPage() {
                       <div key={friend.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
                         <Label htmlFor={`friend-${friend.uid}`} className="flex items-center gap-2 cursor-pointer">
                            <Image 
-                            src={`https://placehold.co/40x40.png?text=${getInitials(friend.displayName, friend.email)}`} 
+                            src="https://placehold.co/40x40.png"
                             alt={friend.displayName || friend.email} 
                             width={32} 
                             height={32} 
@@ -255,7 +255,7 @@ export default function GroupsPage() {
                         {group.memberDetails.slice(0, 5).map(member => (
                            <Image 
                             key={member.uid}
-                            src={`https://placehold.co/24x24.png?text=${getInitials(member.displayName, member.email)}`} 
+                            src="https://placehold.co/24x24.png"
                             alt={member.displayName || member.email} 
                             width={24} 
                             height={24} 
@@ -302,7 +302,7 @@ export default function GroupsPage() {
             width={600} 
             height={300}
             className="rounded-md mx-auto border shadow-sm my-6"
-            data-ai-hint="team collaboration people"
+            data-ai-hint="team collaboration"
           />
           <p className="text-muted-foreground text-sm">
             Soon you&apos;ll be able to add shared expenses to groups, track balances, and settle up with members.

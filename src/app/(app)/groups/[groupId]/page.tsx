@@ -523,7 +523,7 @@ export default function GroupDetailsPage() {
                             <div key={friend.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
                                 <Label htmlFor={`friend-add-${friend.uid}`} className="flex items-center gap-2 cursor-pointer">
                                 <Image 
-                                    src={`https://placehold.co/40x40.png?text=${getInitials(friend.displayName, friend.email)}`} 
+                                    src="https://placehold.co/40x40.png" 
                                     alt={friend.displayName || friend.email} 
                                     width={32} 
                                     height={32} 
@@ -564,7 +564,7 @@ export default function GroupDetailsPage() {
                     <div key={member.uid} className="flex items-center justify-between p-3 rounded-md border bg-card hover:bg-muted/50">
                     <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
-                        <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(member.displayName, member.email)}`} alt={member.displayName || member.email} data-ai-hint="person avatar"/>
+                        <AvatarImage src="https://placehold.co/100x100.png" alt={member.displayName || member.email} data-ai-hint="person avatar"/>
                         <AvatarFallback>{getInitials(member.displayName, member.email)}</AvatarFallback>
                         </Avatar>
                         <div>
@@ -725,7 +725,7 @@ export default function GroupDetailsPage() {
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
                                                     <Avatar className="h-8 w-8">
-                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(memberBalance.displayName, memberBalance.email)}`} alt={memberBalance.displayName} data-ai-hint="person avatar"/>
+                                                        <AvatarImage src="https://placehold.co/40x40.png" alt={memberBalance.displayName} data-ai-hint="person avatar"/>
                                                         <AvatarFallback>{getInitials(memberBalance.displayName, memberBalance.email)}</AvatarFallback>
                                                     </Avatar>
                                                     <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === user?.uid ? "(You)" : ""}</span>
@@ -788,7 +788,7 @@ export default function GroupDetailsPage() {
                                                             <div key={participant.userId} className="flex items-center justify-between p-2 bg-muted/30 rounded-md">
                                                                 <div className="flex items-center gap-2">
                                                                     <Avatar className="h-7 w-7">
-                                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(participantDetail?.displayName, participantDetail?.email)}`} alt={participantDetail?.displayName || participantDetail?.email} data-ai-hint="person avatar" />
+                                                                        <AvatarImage src="https://placehold.co/40x40.png" alt={participantDetail?.displayName || participantDetail?.email} data-ai-hint="person avatar" />
                                                                         <AvatarFallback>{getInitials(participantDetail?.displayName, participantDetail?.email)}</AvatarFallback>
                                                                     </Avatar>
                                                                     <div>
@@ -853,7 +853,7 @@ export default function GroupDetailsPage() {
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
                                                     <Avatar className="h-8 w-8">
-                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(debt.from.displayName, debt.from.email)}`} alt={debt.from.displayName || debt.from.email} data-ai-hint="person avatar"/>
+                                                        <AvatarImage src="https://placehold.co/40x40.png" alt={debt.from.displayName || debt.from.email} data-ai-hint="person avatar"/>
                                                         <AvatarFallback>{getInitials(debt.from.displayName, debt.from.email)}</AvatarFallback>
                                                     </Avatar>
                                                     <span className="font-medium text-sm">{debt.from.displayName || debt.from.email} {debt.from.uid === currentUserProfile?.uid ? "(You)" : ""}</span>
@@ -865,7 +865,7 @@ export default function GroupDetailsPage() {
                                                 <div className="flex items-center gap-2 justify-end">
                                                     <span className="font-medium text-sm text-right">{debt.to.displayName || debt.to.email} {debt.to.uid === currentUserProfile?.uid ? "(You)" : ""}</span>
                                                     <Avatar className="h-8 w-8">
-                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(debt.to.displayName, debt.to.email)}`} alt={debt.to.displayName || debt.to.email} data-ai-hint="person avatar"/>
+                                                        <AvatarImage src="https://placehold.co/40x40.png" alt={debt.to.displayName || debt.to.email} data-ai-hint="person avatar"/>
                                                         <AvatarFallback>{getInitials(debt.to.displayName, debt.to.email)}</AvatarFallback>
                                                     </Avatar>
                                                 </div>

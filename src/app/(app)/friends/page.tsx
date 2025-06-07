@@ -222,7 +222,7 @@ export default function FriendsPage() {
                 <div key={req.id} className="flex items-center justify-between p-3 rounded-md border bg-card hover:bg-muted/50">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-10 w-10">
-                       <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(req.fromUserDisplayName, req.fromUserEmail)}`} alt={req.fromUserDisplayName || req.fromUserEmail} data-ai-hint="person avatar" />
+                       <AvatarImage src="https://placehold.co/100x100.png" alt={req.fromUserDisplayName || req.fromUserEmail} data-ai-hint="person avatar" />
                       <AvatarFallback>{getInitials(req.fromUserDisplayName, req.fromUserEmail)}</AvatarFallback>
                     </Avatar>
                     <div>
@@ -283,7 +283,7 @@ export default function FriendsPage() {
                 <Card key={friend.uid} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow">
                   <CardContent className="p-4 flex flex-col items-center text-center">
                     <Avatar className="w-16 h-16 mb-3 border-2 border-primary/50">
-                       <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(friend.displayName, friend.email)}`} alt={friend.displayName || friend.email} data-ai-hint="person avatar" />
+                       <AvatarImage src="https://placehold.co/100x100.png" alt={friend.displayName || friend.email} data-ai-hint="person avatar" />
                       <AvatarFallback>{getInitials(friend.displayName, friend.email)}</AvatarFallback>
                     </Avatar>
                     <p className="font-semibold text-md text-foreground">{friend.displayName || friend.email}</p>

@@ -471,7 +471,7 @@ export default function SplitExpensesPage() {
                     <div key={friend.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
                       <Label htmlFor={`friend-split-${friend.uid}`} className="flex items-center gap-3 cursor-pointer flex-grow">
                         <Avatar className="h-8 w-8">
-                            <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(friend.displayName, friend.email)}`} alt={friend.displayName || friend.email} data-ai-hint="person avatar" />
+                            <AvatarImage src="https://placehold.co/40x40.png" alt={friend.displayName || friend.email} data-ai-hint="person avatar" />
                             <AvatarFallback>{getInitials(friend.displayName, friend.email)}</AvatarFallback>
                         </Avatar>
                         <div>
@@ -499,7 +499,7 @@ export default function SplitExpensesPage() {
                   <div key={p.uid} className="p-3 border rounded-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                     <div className="flex items-center gap-2 flex-grow">
                         <Avatar className="h-8 w-8">
-                            <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(p.displayName, p.email)}`} alt={p.displayName || p.email} data-ai-hint="person avatar"/>
+                            <AvatarImage src="https://placehold.co/40x40.png" alt={p.displayName || p.email} data-ai-hint="person avatar"/>
                             <AvatarFallback>{getInitials(p.displayName, p.email)}</AvatarFallback>
                         </Avatar>
                         <span className="text-sm font-medium">{p.uid === currentUserProfile?.uid ? 'You (Payer)' : (p.displayName || p.email)}</span>
@@ -661,7 +661,7 @@ export default function SplitExpensesPage() {
                                         <li key={index} className="flex justify-between items-center p-2 rounded-md bg-muted/50">
                                             <div className="flex items-center gap-2">
                                                 <Avatar className="h-8 w-8">
-                                                    <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(p.displayName, p.email)}`} alt={p.displayName || p.email} data-ai-hint="person avatar"/>
+                                                    <AvatarImage src="https://placehold.co/40x40.png" alt={p.displayName || p.email} data-ai-hint="person avatar"/>
                                                     <AvatarFallback>{getInitials(p.displayName, p.email)}</AvatarFallback>
                                                 </Avatar>
                                                 <div>

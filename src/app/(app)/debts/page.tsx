@@ -157,7 +157,7 @@ export default function DebtsPage() {
                       {/* Person on the left */}
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <Avatar className="h-10 w-10">
-                           <AvatarImage src={`https://placehold.co/100x100.png?text=${summary.netAmount > 0 ? summary.friendAvatarText : (currentUserProfile?.displayName?.substring(0,2).toUpperCase() || 'ME')}`} alt={summary.netAmount > 0 ? summary.friendDisplayName : (currentUserProfile?.displayName || "You")} data-ai-hint="person avatar" />
+                           <AvatarImage src="https://placehold.co/100x100.png" alt={summary.netAmount > 0 ? summary.friendDisplayName : (currentUserProfile?.displayName || "You")} data-ai-hint="person avatar" />
                            <AvatarFallback>{summary.netAmount > 0 ? summary.friendAvatarText : (currentUserProfile?.displayName?.substring(0,2).toUpperCase() || 'ME')}</AvatarFallback>
                         </Avatar>
                         <div className="truncate">
@@ -184,7 +184,7 @@ export default function DebtsPage() {
                             <p className="text-xs text-muted-foreground truncate">{summary.netAmount < 0 ? summary.friendEmail : currentUserProfile?.email}</p>
                         </div>
                         <Avatar className="h-10 w-10">
-                           <AvatarImage src={`https://placehold.co/100x100.png?text=${summary.netAmount < 0 ? summary.friendAvatarText : (currentUserProfile?.displayName?.substring(0,2).toUpperCase() || 'ME')}`} alt={summary.netAmount < 0 ? summary.friendDisplayName : (currentUserProfile?.displayName || "You")} data-ai-hint="person avatar" />
+                           <AvatarImage src="https://placehold.co/100x100.png" alt={summary.netAmount < 0 ? summary.friendDisplayName : (currentUserProfile?.displayName || "You")} data-ai-hint="person avatar" />
                            <AvatarFallback>{summary.netAmount < 0 ? summary.friendAvatarText : (currentUserProfile?.displayName?.substring(0,2).toUpperCase() || 'ME')}</AvatarFallback>
                         </Avatar>
                       </div>

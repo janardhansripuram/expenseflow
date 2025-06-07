@@ -156,7 +156,7 @@ export function GroupExpenseSplitDialog({
                 <Label className="font-semibold">Paid By:</Label>
                 <div className="flex items-center gap-2 mt-1">
                     <Avatar className="h-8 w-8">
-                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(payerProfile?.displayName, payerProfile?.email)}`} alt={payerProfile?.displayName || payerProfile?.email} data-ai-hint="person avatar" />
+                        <AvatarImage src="https://placehold.co/40x40.png" alt={payerProfile?.displayName || payerProfile?.email} data-ai-hint="person avatar" />
                         <AvatarFallback>{getInitials(payerProfile?.displayName, payerProfile?.email)}</AvatarFallback>
                     </Avatar>
                     <span>{payerProfile?.displayName || payerProfile?.email} {payerProfile?.uid === currentUserProfile?.uid ? "(You)" : ""}</span>
@@ -170,7 +170,7 @@ export function GroupExpenseSplitDialog({
                         <div key={member.uid} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-md">
                             <div className="flex items-center gap-2">
                                 <Avatar className="h-8 w-8">
-                                <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(member.displayName, member.email)}`} alt={member.displayName || member.email} data-ai-hint="person avatar" />
+                                <AvatarImage src="https://placehold.co/40x40.png" alt={member.displayName || member.email} data-ai-hint="person avatar" />
                                 <AvatarFallback>{getInitials(member.displayName, member.email)}</AvatarFallback>
                                 </Avatar>
                                 <span className="text-sm">{member.displayName || member.email}</span>
