@@ -5,7 +5,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon } from "lucide-react";
+import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser } from "@/lib/firebase/firestore";
 import type { Expense } from "@/lib/types";
@@ -13,9 +13,12 @@ import { summarizeSpending, SummarizeSpendingOutput } from "@/ai/flows/summarize
 import { useToast } from "@/hooks/use-toast";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { subDays, formatISO, startOfMonth, endOfMonth } from 'date-fns';
+import { subDays, startOfMonth, endOfMonth, parseISO, format, startOfDay, endOfDay } from 'date-fns';
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type PeriodOption = "last7days" | "last30days" | "currentMonth" | "allTime";
+type ReportPeriod = PeriodOption | "custom";
 
 interface ChartDataItem {
   category: string;
@@ -41,7 +44,11 @@ export default function ReportsPage() {
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<SummarizeSpendingOutput | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("last30days");
+  
+  const [selectedPeriod, setSelectedPeriod] = useState<ReportPeriod>("last30days");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+
 
   useEffect(() => {
     async function fetchExpenses() {
@@ -68,33 +75,52 @@ export default function ReportsPage() {
     }
 
     const now = new Date();
-    let startDate: Date;
+    let startDateFilter: Date | null = null;
+    let endDateFilter: Date | null = now; 
 
-    switch (selectedPeriod) {
-      case "last7days":
-        startDate = subDays(now, 7);
-        break;
-      case "last30days":
-        startDate = subDays(now, 30);
-        break;
-      case "currentMonth":
-        startDate = startOfMonth(now);
-        break;
-      case "allTime":
-      default:
-        setFilteredExpenses(expenses);
+    if (selectedPeriod === "custom") {
+      if (customStartDate && customEndDate) {
+        const parsedStartDate = parseISO(customStartDate);
+        const parsedEndDate = parseISO(customEndDate);
+        
+        if (parsedStartDate > parsedEndDate) {
+          toast({ variant: "destructive", title: "Invalid Date Range", description: "Start date cannot be after end date." });
+          setFilteredExpenses([]); 
+          return;
+        }
+        startDateFilter = startOfDay(parsedStartDate);
+        endDateFilter = endOfDay(parsedEndDate);
+      } else {
+        setFilteredExpenses([]); // Clear expenses if custom is selected but dates are not set
         return;
+      }
+    } else if (selectedPeriod === "last7days") {
+      startDateFilter = startOfDay(subDays(now, 7));
+      endDateFilter = endOfDay(now);
+    } else if (selectedPeriod === "last30days") {
+      startDateFilter = startOfDay(subDays(now, 30));
+      endDateFilter = endOfDay(now);
+    } else if (selectedPeriod === "currentMonth") {
+      startDateFilter = startOfDay(startOfMonth(now));
+      endDateFilter = endOfDay(endOfMonth(now));
+    } else if (selectedPeriod === "allTime") {
+      setFilteredExpenses(expenses);
+      setSummaryData(null); // Clear AI summary when switching to all time or from custom without generating
+      return;
     }
-    
-    const endDate = selectedPeriod === "currentMonth" ? endOfMonth(now) : now;
 
-    const filtered = expenses.filter(expense => {
-      const expenseDate = new Date(expense.date);
-      return expenseDate >= startDate && expenseDate <= endDate;
-    });
-    setFilteredExpenses(filtered);
+    if (startDateFilter && endDateFilter) {
+      const filtered = expenses.filter(expense => {
+        const expenseDate = parseISO(expense.date); // Dates are stored as 'YYYY-MM-DD'
+        return expenseDate >= startDateFilter! && expenseDate <= endDateFilter!;
+      });
+      setFilteredExpenses(filtered);
+    } else if (selectedPeriod !== "allTime") {
+        setFilteredExpenses([]);
+    }
+    setSummaryData(null); // Clear AI summary when period changes
 
-  }, [expenses, selectedPeriod]);
+  }, [expenses, selectedPeriod, customStartDate, customEndDate, toast]);
 
 
   const handleGenerateSummary = async () => {
@@ -103,6 +129,11 @@ export default function ReportsPage() {
       setSummaryData(null);
       return;
     }
+     if (selectedPeriod === 'custom' && (!customStartDate || !customEndDate)) {
+      toast({ variant: "destructive", title: "Custom Date Range Needed", description: "Please select a start and end date for the custom range summary."});
+      return;
+    }
+
     setIsLoadingSummary(true);
     setSummaryData(null); 
     try {
@@ -111,13 +142,17 @@ export default function ReportsPage() {
         .join('\n');
       
       let periodDescription = "";
-      switch (selectedPeriod) {
-        case "last7days": periodDescription = "the last 7 days"; break;
-        case "last30days": periodDescription = "the last 30 days"; break;
-        case "currentMonth": periodDescription = "the current month"; break;
-        case "allTime": periodDescription = "all time"; break;
+      if (selectedPeriod === "custom") {
+        periodDescription = `the period from ${format(parseISO(customStartDate), "MMM dd, yyyy")} to ${format(parseISO(customEndDate), "MMM dd, yyyy")}`;
+      } else {
+        switch (selectedPeriod) {
+          case "last7days": periodDescription = "the last 7 days"; break;
+          case "last30days": periodDescription = "the last 30 days"; break;
+          case "currentMonth": periodDescription = "the current month"; break;
+          case "allTime": periodDescription = "all time"; break;
+        }
       }
-
+      
       const result = await summarizeSpending({ spendingData: spendingDataString, period: periodDescription });
       setSummaryData(result);
       toast({ title: "Summary Generated", description: "AI insights are ready!" });
@@ -152,7 +187,6 @@ export default function ReportsPage() {
     },
   } satisfies Record<string, any>;
 
-  // For Pie chart legend and tooltip, map categories to chart colors
   const pieChartConfig = useMemo(() => {
     const config: Record<string, { label: string; color: string }> = {};
     chartData.forEach((item, index) => {
@@ -163,7 +197,22 @@ export default function ReportsPage() {
     });
     return config;
   }, [chartData]);
-
+  
+  const getPeriodDescriptionForCharts = () => {
+    if (selectedPeriod === "custom") {
+        if (customStartDate && customEndDate) {
+            return `from ${format(parseISO(customStartDate), "MMM dd, yyyy")} to ${format(parseISO(customEndDate), "MMM dd, yyyy")}`;
+        }
+        return "the custom period (dates not set)";
+    }
+    switch (selectedPeriod) {
+        case "last7days": return "the last 7 days";
+        case "last30days": return "the last 30 days";
+        case "currentMonth": return "the current month";
+        case "allTime": return "all time";
+        default: return "the selected period";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -172,9 +221,9 @@ export default function ReportsPage() {
           <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Reports</h1>
           <p className="text-muted-foreground">Analyze your spending patterns and generate financial reports.</p>
         </div>
-        <div className="flex items-center gap-2">
-            <Select value={selectedPeriod} onValueChange={(value: PeriodOption) => setSelectedPeriod(value)}>
-              <SelectTrigger className="w-full md:w-[180px]">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+            <Select value={selectedPeriod} onValueChange={(value: ReportPeriod) => setSelectedPeriod(value)}>
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>
               <SelectContent>
@@ -182,14 +231,53 @@ export default function ReportsPage() {
                 <SelectItem value="last30days">Last 30 Days</SelectItem>
                 <SelectItem value="currentMonth">Current Month</SelectItem>
                 <SelectItem value="allTime">All Time</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={handleGenerateSummary} disabled={isLoadingSummary || isLoadingExpenses || filteredExpenses.length === 0}>
+            <Button 
+                onClick={handleGenerateSummary} 
+                disabled={isLoadingSummary || isLoadingExpenses || filteredExpenses.length === 0 || (selectedPeriod === 'custom' && (!customStartDate || !customEndDate))}
+                className="w-full sm:w-auto"
+            >
                 {isLoadingSummary ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
                 Generate AI Summary
             </Button>
         </div>
       </div>
+      
+      {selectedPeriod === 'custom' && (
+        <Card className="shadow-md">
+            <CardHeader>
+                <CardTitle className="font-headline flex items-center text-lg"><CalendarDays className="mr-2 h-5 w-5 text-primary"/>Custom Date Range</CardTitle>
+            </CardHeader>
+            <CardContent className="grid sm:grid-cols-2 gap-4">
+                <div>
+                    <Label htmlFor="customStartDate">Start Date</Label>
+                    <Input 
+                        type="date" 
+                        id="customStartDate" 
+                        value={customStartDate} 
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="mt-1"
+                        max={customEndDate || undefined} 
+                    />
+                </div>
+                <div>
+                    <Label htmlFor="customEndDate">End Date</Label>
+                    <Input 
+                        type="date" 
+                        id="customEndDate" 
+                        value={customEndDate} 
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="mt-1"
+                        min={customStartDate || undefined}
+                        max={format(new Date(), "yyyy-MM-dd")} // Prevent future dates
+                    />
+                </div>
+            </CardContent>
+        </Card>
+      )}
+
 
       {isLoadingExpenses && (
         <Card className="shadow-lg">
@@ -204,10 +292,10 @@ export default function ReportsPage() {
          <Card className="shadow-lg">
             <CardHeader>
                 <CardTitle className="font-headline">No Data</CardTitle>
-                <CardDescription>No expenses found for the selected period.</CardDescription>
+                <CardDescription>No expenses found for {getPeriodDescriptionForCharts()}.</CardDescription>
             </CardHeader>
             <CardContent>
-                <p className="text-muted-foreground">Try selecting a different period or add some expenses first.</p>
+                <p className="text-muted-foreground">Try selecting a different period or add some expenses first. If using a custom range, ensure both start and end dates are selected.</p>
             </CardContent>
         </Card>
       )}
@@ -220,7 +308,7 @@ export default function ReportsPage() {
                 <BarChart3 className="mr-2 h-6 w-6 text-primary" />
                 Spending by Category
                 </CardTitle>
-                <CardDescription>Visual breakdown of your expenses for {selectedPeriod === 'allTime' ? 'all time' : `the ${selectedPeriod.replace('last', 'last ').replace('days', ' days').replace('currentMonth', 'current month')}`}.</CardDescription>
+                <CardDescription>Visual breakdown of your expenses for {getPeriodDescriptionForCharts()}.</CardDescription>
             </CardHeader>
             <CardContent className="h-[350px] w-full">
                 <ChartContainer config={barChartConfig} className="w-full h-full">
@@ -251,7 +339,7 @@ export default function ReportsPage() {
                         <PieChartIcon className="mr-2 h-6 w-6 text-primary" />
                         Category Distribution
                     </CardTitle>
-                    <CardDescription>Proportional spending by category for {selectedPeriod === 'allTime' ? 'all time' : `the ${selectedPeriod.replace('last', 'last ').replace('days', ' days').replace('currentMonth', 'current month')}`}.</CardDescription>
+                    <CardDescription>Proportional spending by category for {getPeriodDescriptionForCharts()}.</CardDescription>
                 </CardHeader>
                 <CardContent className="h-[350px] w-full flex items-center justify-center">
                    <ChartContainer config={pieChartConfig} className="w-full h-full aspect-square">
@@ -259,7 +347,7 @@ export default function ReportsPage() {
                             <Tooltip
                                 content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
-                                    const data = payload[0].payload; // The data for the slice
+                                    const data = payload[0].payload; 
                                     const percentage = totalSpendingForPeriod > 0 ? (data.total / totalSpendingForPeriod * 100).toFixed(1) : 0;
                                     return (
                                         <div className="rounded-lg border bg-background p-2.5 shadow-sm text-sm">
@@ -292,7 +380,7 @@ export default function ReportsPage() {
                                     const x = cx + (radius + 15) * Math.cos(-midAngle * RADIAN);
                                     const y = cy + (radius + 15) * Math.sin(-midAngle * RADIAN);
                                     const displayPercent = (payload.total / totalSpendingForPeriod * 100);
-                                    if (displayPercent < 5) return null; // Hide label for very small slices
+                                    if (displayPercent < 5) return null; 
 
                                     return (
                                     <text
@@ -360,6 +448,3 @@ export default function ReportsPage() {
     </div>
   );
 }
-
-
-    
