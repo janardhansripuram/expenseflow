@@ -21,6 +21,7 @@ export const SUPPORTED_CURRENCIES = [
   { code: "CAD", name: "Canadian Dollar", symbol: "CA$" },
   { code: "AUD", name: "Australian Dollar", symbol: "A$" },
   { code: "INR", name: "Indian Rupee", symbol: "₹" },
+  { code: "MYR", name: "Malaysian Ringgit", symbol: "RM" },
 ] as const;
 
 export type CurrencyCode = typeof SUPPORTED_CURRENCIES[number]['code'];
