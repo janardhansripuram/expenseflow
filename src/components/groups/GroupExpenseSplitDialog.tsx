@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Save, Users, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import type { Expense, Group, SplitParticipant, UserProfile, SplitMethod } from "@/lib/types";
+import type { Expense, Group, SplitParticipant, UserProfile, SplitMethod, CurrencyCode } from "@/lib/types";
 import { createSplitExpense } from "@/lib/firebase/firestore";
 import { Timestamp } from "firebase/firestore";
 
@@ -48,6 +48,9 @@ export function GroupExpenseSplitDialog({
   }, [expenseToSplit, group]);
 
   const numberOfParticipants = group?.memberIds.length || 0;
+  
+  const expenseCurrency = expenseToSplit?.currency || 'USD';
+
   const amountPerPerson = useMemo(() => {
     if (expenseToSplit && numberOfParticipants > 0) {
       // For now, assumes equal split for UI display
@@ -56,10 +59,10 @@ export function GroupExpenseSplitDialog({
     return 0;
   }, [expenseToSplit, numberOfParticipants]);
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency: currencyCode,
     }).format(amount);
   };
 
@@ -93,7 +96,6 @@ export function GroupExpenseSplitDialog({
 
     setIsSavingSplit(true);
 
-    // Current UI only supports equal splits for group expenses from this dialog
     const currentSplitMethod: SplitMethod = 'equally';
     const calculatedAmountPerPerson = expenseToSplit.amount / numberOfParticipants;
 
@@ -108,11 +110,14 @@ export function GroupExpenseSplitDialog({
     const splitData = {
       originalExpenseId: expenseToSplit.id!,
       originalExpenseDescription: expenseToSplit.description,
+      currency: expenseToSplit.currency, // Pass the currency
       splitMethod: currentSplitMethod,
       totalAmount: expenseToSplit.amount,
-      paidBy: expenseToSplit.userId, // The user who originally paid for the group expense
+      paidBy: expenseToSplit.userId, 
       participants: participants,
       groupId: group.id,
+      groupName: group.name, // Pass group name for activity log
+      actorProfile: currentUserProfile, // Pass actor profile for activity log
       notes: `Split of group expense: "${expenseToSplit.description}" for group "${group.name}"`,
     };
 
@@ -122,7 +127,7 @@ export function GroupExpenseSplitDialog({
         title: "Split Saved",
         description: `Expense "${expenseToSplit.description}" has been successfully split among group members.`,
       });
-      onOpenChange(false); // Close dialog on success
+      onOpenChange(false); 
     } catch (error: any) {
       console.error("Error saving group expense split:", error);
       toast({
@@ -150,7 +155,7 @@ export function GroupExpenseSplitDialog({
         <div className="space-y-4 py-4">
             <div>
                 <Label className="font-semibold">Total Amount:</Label>
-                <p className="text-2xl font-bold text-primary">{formatCurrency(expenseToSplit.amount)}</p>
+                <p className="text-2xl font-bold text-primary">{formatCurrency(expenseToSplit.amount, expenseCurrency)}</p>
             </div>
              <div>
                 <Label className="font-semibold">Paid By:</Label>
@@ -176,7 +181,7 @@ export function GroupExpenseSplitDialog({
                                 <span className="text-sm">{member.displayName || member.email}</span>
                                  {member.uid === expenseToSplit.userId && <Badge variant="secondary" className="text-xs">Payer</Badge>}
                             </div>
-                            <span className="text-sm font-medium">{formatCurrency(amountPerPerson)}</span>
+                            <span className="text-sm font-medium">{formatCurrency(amountPerPerson, expenseCurrency)}</span>
                         </div>
                     ))}
                 </ScrollArea>
@@ -185,7 +190,7 @@ export function GroupExpenseSplitDialog({
                 <div className="flex items-start">
                     <Info className="h-5 w-5 mr-2 mt-0.5 text-accent" />
                     <p className="text-xs">
-                        Each of the {numberOfParticipants} members will owe {formatCurrency(amountPerPerson)}.
+                        Each of the {numberOfParticipants} members will owe {formatCurrency(amountPerPerson, expenseCurrency)}.
                         The payer, {payerProfile?.displayName || payerProfile?.email}, is considered settled.
                         Non-equal split methods for group expenses will be available soon.
                     </p>

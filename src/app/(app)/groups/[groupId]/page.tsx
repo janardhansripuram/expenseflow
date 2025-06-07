@@ -36,16 +36,18 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save, ArrowRight, Landmark, History, ReceiptText } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save, ArrowRight, Landmark, History, ReceiptText, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement, logGroupActivity, getGroupActivityLog, ActivityActionType } from "@/lib/firebase/firestore";
-import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance, SplitParticipant, GroupActivityLogEntry } from "@/lib/types";
+import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance, SplitParticipant, GroupActivityLogEntry, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import Image from "next/image";
 import { format, formatDistanceToNow } from "date-fns";
 import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { Alert, AlertDescription as UIAlertDescription } from "@/components/ui/alert";
 
 
 const groupNameSchema = z.object({
@@ -57,6 +59,7 @@ interface PairwiseDebt {
   from: GroupMemberDetail;
   to: GroupMemberDetail;
   amount: number;
+  currency: CurrencyCode;
 }
 
 
@@ -95,13 +98,16 @@ export default function GroupDetailsPage() {
     defaultValues: { name: "" },
   });
 
+  const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
+  };
+
   const fetchGroupData = useCallback(async (refreshAll = false) => {
     if (!user || !groupId) return;
 
     if (refreshAll) {
         setIsLoading(true);
     }
-    // Individual loading states for sections
     setIsLoadingExpenses(true);
     setIsLoadingSplits(true);
     setIsLoadingActivityLog(true);
@@ -161,95 +167,126 @@ export default function GroupDetailsPage() {
     fetchGroupData(true); 
   }, []); 
 
-  const groupMemberBalances = useMemo(() => {
+const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
     if (!group || isLoadingExpenses || isLoadingSplits || !currentUserProfile) {
-      return [];
+        return [];
     }
-    
-    const balances: Record<string, { paidForGroup: number; owesToOthersInGroup: number }> = {};
+
+    const balances: Record<string, { paidForGroup: Partial<Record<CurrencyCode, number>>; owesToOthersInGroup: Partial<Record<CurrencyCode, number>> }> = {};
+    group.memberDetails.forEach(member => {
+        balances[member.uid] = { paidForGroup: {}, owesToOthersInGroup: {} };
+    });
+
     const splitOriginalExpenseIds = new Set(splitExpensesForGroup.map(s => s.originalExpenseId));
 
-    group.memberDetails.forEach(member => {
-      balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
-    });
-    
+    // Direct expenses paid by a member for the group (not yet formally split)
     groupExpenses.forEach(expense => {
-      if (!splitOriginalExpenseIds.has(expense.id!) && balances[expense.userId]) {
-        balances[expense.userId].paidForGroup += expense.amount;
-      }
+        if (!splitOriginalExpenseIds.has(expense.id!) && balances[expense.userId]) {
+            const currency = expense.currency;
+            balances[expense.userId].paidForGroup[currency] = (balances[expense.userId].paidForGroup[currency] || 0) + expense.amount;
+        }
     });
     
+    // Formally split expenses
     splitExpensesForGroup.forEach(split => {
+        const splitCurrency = split.currency;
         if (balances[split.paidBy]) {
-            let amountPaidByPayerForOthersInThisSplit = 0;
+            let amountPayerContributedForOthersInThisSplit = 0;
             split.participants.forEach(participant => {
-                if (participant.userId !== split.paidBy && !participant.isSettled) {
-                    amountPaidByPayerForOthersInThisSplit += participant.amountOwed;
+                if (participant.userId !== split.paidBy && !participant.isSettled && group.memberIds.includes(participant.userId)) {
+                    amountPayerContributedForOthersInThisSplit += participant.amountOwed;
                 }
             });
-            balances[split.paidBy].paidForGroup += amountPaidByPayerForOthersInThisSplit;
+            balances[split.paidBy].paidForGroup[splitCurrency] = (balances[split.paidBy].paidForGroup[splitCurrency] || 0) + amountPayerContributedForOthersInThisSplit;
         }
 
         split.participants.forEach(participant => {
-            if (balances[participant.userId] && participant.userId !== split.paidBy && !participant.isSettled) {
-                balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
+            if (balances[participant.userId] && participant.userId !== split.paidBy && !participant.isSettled && group.memberIds.includes(participant.userId)) {
+                balances[participant.userId].owesToOthersInGroup[splitCurrency] = (balances[participant.userId].owesToOthersInGroup[splitCurrency] || 0) + participant.amountOwed;
             }
         });
     });
     
     return group.memberDetails.map(member => {
-      const paid = balances[member.uid]?.paidForGroup || 0;
-      const owed = balances[member.uid]?.owesToOthersInGroup || 0;
-      return {
-        uid: member.uid,
-        displayName: member.displayName || member.email,
-        email: member.email,
-        paidForGroup: paid,
-        owesToOthersInGroup: owed,
-        netBalance: paid - owed,
-      };
-    }).sort((a,b) => b.netBalance - a.netBalance); 
+        const paid = balances[member.uid]?.paidForGroup || {};
+        const owed = balances[member.uid]?.owesToOthersInGroup || {};
+        const netBalance: Partial<Record<CurrencyCode, number>> = {};
+        
+        const allCurrencies = new Set([...Object.keys(paid), ...Object.keys(owed)]) as Set<CurrencyCode>;
+        allCurrencies.forEach(curr => {
+            netBalance[curr] = (paid[curr] || 0) - (owed[curr] || 0);
+        });
+
+        return {
+            uid: member.uid,
+            displayName: member.displayName || member.email,
+            email: member.email,
+            paidForGroup: paid,
+            owesToOthersInGroup: owed,
+            netBalance: netBalance,
+        };
+    });
   }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits, currentUserProfile]);
 
-  const pairwiseDebts = useMemo(() => {
+
+  const pairwiseDebts: PairwiseDebt[] = useMemo(() => {
     if (groupMemberBalances.length === 0 || !group) {
-      return [];
+        return [];
     }
 
-    let mutableDebtors = groupMemberBalances
-      .filter(m => m.netBalance < -0.005) 
-      .map(m => ({ uid: m.uid, amount: Math.abs(m.netBalance) }))
-      .sort((a, b) => b.amount - a.amount);
+    const allCurrenciesInBalances = new Set<CurrencyCode>();
+    groupMemberBalances.forEach(balance => {
+        Object.keys(balance.netBalance).forEach(curr => allCurrenciesInBalances.add(curr as CurrencyCode));
+    });
 
-    let mutableCreditors = groupMemberBalances
-      .filter(m => m.netBalance > 0.005) 
-      .map(m => ({ uid: m.uid, amount: m.netBalance }))
-      .sort((a, b) => b.amount - a.amount);
-    
     const calculatedDebts: PairwiseDebt[] = [];
 
-    while (mutableDebtors.length > 0 && mutableCreditors.length > 0) {
-      const debtor = mutableDebtors[0];
-      const creditor = mutableCreditors[0];
-      const amountToSettle = Math.min(debtor.amount, creditor.amount);
+    allCurrenciesInBalances.forEach(currency => {
+        let mutableDebtors = groupMemberBalances
+            .filter(m => (m.netBalance[currency] || 0) < -0.005)
+            .map(m => ({ uid: m.uid, amount: Math.abs(m.netBalance[currency] || 0) }))
+            .sort((a, b) => b.amount - a.amount);
 
-      if (amountToSettle > 0.005) {
-        const fromProfile = group.memberDetails.find(m => m.uid === debtor.uid);
-        const toProfile = group.memberDetails.find(m => m.uid === creditor.uid);
-        if (fromProfile && toProfile) {
-           calculatedDebts.push({ from: fromProfile, to: toProfile, amount: amountToSettle });
+        let mutableCreditors = groupMemberBalances
+            .filter(m => (m.netBalance[currency] || 0) > 0.005)
+            .map(m => ({ uid: m.uid, amount: m.netBalance[currency] || 0 }))
+            .sort((a, b) => b.amount - a.amount);
+
+        while (mutableDebtors.length > 0 && mutableCreditors.length > 0) {
+            const debtor = mutableDebtors[0];
+            const creditor = mutableCreditors[0];
+            const amountToSettle = Math.min(debtor.amount, creditor.amount);
+
+            if (amountToSettle > 0.005) {
+                const fromProfile = group.memberDetails.find(m => m.uid === debtor.uid);
+                const toProfile = group.memberDetails.find(m => m.uid === creditor.uid);
+                if (fromProfile && toProfile) {
+                    calculatedDebts.push({ from: fromProfile, to: toProfile, amount: amountToSettle, currency });
+                }
+            }
+
+            debtor.amount -= amountToSettle;
+            creditor.amount -= amountToSettle;
+
+            if (debtor.amount < 0.005) mutableDebtors.shift();
+            if (creditor.amount < 0.005) mutableCreditors.shift();
         }
-      }
-
-      debtor.amount -= amountToSettle;
-      creditor.amount -= amountToSettle;
-
-      if (debtor.amount < 0.005) mutableDebtors.shift();
-      if (creditor.amount < 0.005) mutableCreditors.shift();
-    }
-    
-    return calculatedDebts;
+    });
+    return calculatedDebts.sort((a,b) => a.currency.localeCompare(b.currency) || Math.abs(b.amount) - Math.abs(a.amount));
   }, [groupMemberBalances, group]);
+
+  const groupBalancesHasMixedCurrencies = useMemo(() => {
+    const currencies = new Set<CurrencyCode>();
+    groupMemberBalances.forEach(balance => {
+        Object.keys(balance.netBalance).forEach(curr => currencies.add(curr as CurrencyCode));
+    });
+    return currencies.size > 1;
+  }, [groupMemberBalances]);
+
+  const pairwiseDebtsHasMixedCurrencies = useMemo(() => {
+    const currencies = new Set(pairwiseDebts.map(d => d.currency));
+    return currencies.size > 1;
+  }, [pairwiseDebts]);
 
 
   const handleToggleFriendSelection = (friendId: string) => {
@@ -377,10 +414,6 @@ export default function GroupDetailsPage() {
     return '??';
   }
   
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
-  };
-
   const friendsNotInGroup = useMemo(() => {
     return friends.filter(friend => !group?.memberIds.includes(friend.uid));
   }, [friends, group]);
@@ -663,7 +696,7 @@ export default function GroupDetailsPage() {
                                         </p>
                                         </div>
                                         <div className="text-right flex flex-col items-end gap-1">
-                                            <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
+                                            <p className="font-semibold text-sm">{formatCurrency(expense.amount, expense.currency)}</p>
                                             <Button 
                                                 variant="outline" 
                                                 size="sm" 
@@ -699,42 +732,69 @@ export default function GroupDetailsPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><Scale className="mr-2 h-5 w-5"/>Group Balances</CardTitle>
-                    <CardDescription>Summary of who owes whom within the group based on formalized splits and direct, unsplit expenses.</CardDescription>
+                    <CardDescription>Summary of who owes whom within the group, broken down by currency.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {isLoadingExpenses || isLoadingSplits ? ( // Group balances depend on expenses and splits
+                    {isLoadingExpenses || isLoadingSplits ? (
                         <div className="flex items-center justify-center py-10">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <p className="ml-2">Loading balances...</p>
                         </div>
                     ) : groupMemberBalances.length > 0 ? (
-                        <ScrollArea className="h-[200px] md:h-[240px]">
-                            <div className="space-y-3 pr-2">
+                        <>
+                        {groupBalancesHasMixedCurrencies && (
+                            <Alert variant="default" className="mb-4 text-xs bg-amber-50 border-amber-200 text-amber-700">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                <UIAlertDescription>
+                                Balances involve multiple currencies. All amounts are shown in their original currency without conversion.
+                                </UIAlertDescription>
+                            </Alert>
+                        )}
+                        <ScrollArea className="h-[250px] md:h-[300px]">
+                            <div className="space-y-4 pr-2">
                                 {groupMemberBalances.map(memberBalance => (
                                     <Card key={memberBalance.uid} className="shadow-sm">
-                                        <CardContent className="p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="h-8 w-8">
-                                                        <AvatarImage src="https://placehold.co/40x40.png" alt={memberBalance.displayName} data-ai-hint="person avatar"/>
-                                                        <AvatarFallback>{getInitials(memberBalance.displayName, memberBalance.email)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === user?.uid ? "(You)" : ""}</span>
+                                        <CardHeader className="p-3 pb-1">
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="h-8 w-8">
+                                                    <AvatarImage src="https://placehold.co/40x40.png" alt={memberBalance.displayName} data-ai-hint="person avatar"/>
+                                                    <AvatarFallback>{getInitials(memberBalance.displayName, memberBalance.email)}</AvatarFallback>
+                                                </Avatar>
+                                                <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === user?.uid ? "(You)" : ""}</span>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent className="p-3 pt-1">
+                                            {Object.keys(memberBalance.netBalance).length === 0 && Object.keys(memberBalance.paidForGroup).length === 0 && Object.keys(memberBalance.owesToOthersInGroup).length === 0 && (
+                                                <p className="text-xs text-muted-foreground text-center py-2">No balance activity yet.</p>
+                                            )}
+                                            {(Object.keys(memberBalance.netBalance) as CurrencyCode[]).map(currency => {
+                                                const net = memberBalance.netBalance[currency] || 0;
+                                                const paid = memberBalance.paidForGroup[currency] || 0;
+                                                const owed = memberBalance.owesToOthersInGroup[currency] || 0;
+                                                if (Math.abs(net) < 0.01 && Math.abs(paid) < 0.01 && Math.abs(owed) < 0.01) return null;
+                                                
+                                                return (
+                                                <div key={currency} className="mt-2 border-t pt-2">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-xs font-semibold text-muted-foreground">{currency} Balance:</span>
+                                                        <Badge variant={net >= 0 ? "default" : "destructive"} className={cn(net >= 0 ? "bg-green-600 hover:bg-green-700" : "", "text-white")}>
+                                                            {net >= 0 ? <TrendingUp className="mr-1 h-4 w-4"/> : <TrendingDown className="mr-1 h-4 w-4"/>}
+                                                            {formatCurrency(net, currency)}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground grid grid-cols-2 gap-x-2">
+                                                        <p>Paid for Group: <span className="font-medium text-green-600">{formatCurrency(paid, currency)}</span></p>
+                                                        <p>Owes from Splits: <span className="font-medium text-red-600">{formatCurrency(owed, currency)}</span></p>
+                                                    </div>
                                                 </div>
-                                                <Badge variant={memberBalance.netBalance >= 0 ? "default" : "destructive"} className={cn(memberBalance.netBalance >= 0 ? "bg-green-600 hover:bg-green-700 text-white" : "", "text-white")}>
-                                                    {memberBalance.netBalance >= 0 ? <TrendingUp className="mr-1 h-4 w-4"/> : <TrendingDown className="mr-1 h-4 w-4"/>}
-                                                    {formatCurrency(memberBalance.netBalance)}
-                                                </Badge>
-                                            </div>
-                                            <div className="mt-2 text-xs text-muted-foreground grid grid-cols-2 gap-x-2">
-                                                <p>Paid for Group: <span className="font-medium text-green-600">{formatCurrency(memberBalance.paidForGroup)}</span></p>
-                                                <p>Owes from Splits: <span className="font-medium text-red-600">{formatCurrency(memberBalance.owesToOthersInGroup)}</span></p>
-                                            </div>
+                                                );
+                                            })}
                                         </CardContent>
                                     </Card>
                                 ))}
                             </div>
                         </ScrollArea>
+                        </>
                     ) : (
                         <p className="text-muted-foreground text-center py-4">No balance data to display.</p>
                     )}
@@ -742,7 +802,7 @@ export default function GroupDetailsPage() {
                         &quot;Paid for Group&quot; = (Direct expenses you paid - if not split) + (Amounts others owed you from group splits you paid for).
                         <br/>
                         &quot;Owes from Splits&quot; = Your unsettled share from group splits paid by others.
-                        Net Balance reflects your overall financial position within the group.
+                        Net Balance reflects your overall financial position within the group for each currency.
                     </p>
                 </CardContent>
             </Card>
@@ -767,7 +827,7 @@ export default function GroupDetailsPage() {
                                             <CardHeader className="pb-2">
                                                 <CardTitle className="text-md">{split.originalExpenseDescription}</CardTitle>
                                                 <CardDescription>
-                                                    Total: {formatCurrency(split.totalAmount)} | You paid for this split.
+                                                    Total: {formatCurrency(split.totalAmount, split.currency)} ({split.currency}) | You paid for this split.
                                                 </CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-2">
@@ -784,7 +844,7 @@ export default function GroupDetailsPage() {
                                                                     </Avatar>
                                                                     <div>
                                                                         <p className="text-sm font-medium">{participantDetail?.displayName || participantDetail?.email}</p>
-                                                                        <p className="text-xs text-red-600">Owes You: {formatCurrency(participant.amountOwed)}</p>
+                                                                        <p className="text-xs text-red-600">Owes You: {formatCurrency(participant.amountOwed, split.currency)}</p>
                                                                     </div>
                                                                 </div>
                                                                 <AlertDialog>
@@ -798,7 +858,7 @@ export default function GroupDetailsPage() {
                                                                         <AlertDialogHeader>
                                                                             <AlertDialogTitle>Confirm Settlement</AlertDialogTitle>
                                                                             <AlertDialogDescription>
-                                                                                Are you sure you want to mark {participantDetail?.displayName || participantDetail?.email} as settled for their share of {formatCurrency(participant.amountOwed)} for the expense &quot;{split.originalExpenseDescription}&quot;?
+                                                                                Are you sure you want to mark {participantDetail?.displayName || participantDetail?.email} as settled for their share of {formatCurrency(participant.amountOwed, split.currency)} for the expense &quot;{split.originalExpenseDescription}&quot;?
                                                                             </AlertDialogDescription>
                                                                         </AlertDialogHeader>
                                                                         <AlertDialogFooter>
@@ -827,15 +887,24 @@ export default function GroupDetailsPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="font-headline flex items-center"><Landmark className="mr-2 h-5 w-5"/>Who Owes Whom (Simplified)</CardTitle>
-                    <CardDescription>A simplified summary of debts within the group to help settle up.</CardDescription>
+                    <CardDescription>A simplified summary of debts within the group to help settle up, per currency.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {isLoadingExpenses || isLoadingSplits ? ( // Pairwise debts depend on balances, which depend on expenses/splits
+                    {isLoadingExpenses || isLoadingSplits ? ( 
                         <div className="flex items-center justify-center py-10">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <p className="ml-2">Calculating debts...</p>
                         </div>
                     ) : pairwiseDebts.length > 0 ? (
+                         <>
+                         {pairwiseDebtsHasMixedCurrencies && (
+                            <Alert variant="default" className="mb-4 text-xs bg-amber-50 border-amber-200 text-amber-700">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                <UIAlertDescription>
+                                Debts involve multiple currencies. Each line item represents a debt in a specific currency.
+                                </UIAlertDescription>
+                            </Alert>
+                         )}
                          <ScrollArea className="h-[200px] md:h-[240px]">
                             <div className="space-y-3 pr-2">
                                 {pairwiseDebts.map((debt, index) => (
@@ -851,7 +920,7 @@ export default function GroupDetailsPage() {
                                                 </div>
                                                 <div className="flex flex-col items-center">
                                                     <ArrowRight className="h-5 w-5 text-muted-foreground"/>
-                                                    <span className="text-xs text-destructive font-semibold">{formatCurrency(debt.amount)}</span>
+                                                    <span className="text-xs text-destructive font-semibold">{formatCurrency(debt.amount, debt.currency)}</span>
                                                 </div>
                                                 <div className="flex items-center gap-2 justify-end">
                                                     <span className="font-medium text-sm text-right">{debt.to.displayName || debt.to.email} {debt.to.uid === currentUserProfile?.uid ? "(You)" : ""}</span>
@@ -866,11 +935,12 @@ export default function GroupDetailsPage() {
                                 ))}
                             </div>
                         </ScrollArea>
+                         </>
                     ) : (
                         <p className="text-muted-foreground text-center py-6">All clear! No outstanding debts within the group based on current balances.</p>
                     )}
                      <p className="text-xs text-muted-foreground mt-4">
-                        This is a simplified settlement plan. To settle, {pairwiseDebts.length > 0 ? "each person on the left should pay the indicated amount to the person on the right." : "no payments are needed."} Marking individual splits as settled will update these recommendations.
+                        This is a simplified settlement plan. To settle, {pairwiseDebts.length > 0 ? "each person on the left should pay the indicated amount (in the specified currency) to the person on the right." : "no payments are needed."} Marking individual splits as settled will update these recommendations.
                     </p>
                 </CardContent>
             </Card>
@@ -895,7 +965,7 @@ export default function GroupDetailsPage() {
                                             <span className="font-semibold">{log.actorDisplayName || 'System'}</span> {log.details}
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            {formatDistanceToNow(log.timestamp.toDate(), { addSuffix: true })}
+                                            {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
                                         </p>
                                     </div>
                                 ))}

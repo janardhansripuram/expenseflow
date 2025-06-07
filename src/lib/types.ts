@@ -139,6 +139,7 @@ export interface SplitExpense {
   id?: string;
   originalExpenseId: string;
   originalExpenseDescription: string;
+  currency: CurrencyCode;
   splitMethod: SplitMethod;
   totalAmount: number;
   paidBy: string;
@@ -173,10 +174,11 @@ export interface GroupMemberBalance {
   uid: string;
   displayName: string;
   email: string;
-  paidForGroup: number;
-  owesToOthersInGroup: number;
-  netBalance: number;
+  paidForGroup: Partial<Record<CurrencyCode, number>>; // Stores amount paid per currency
+  owesToOthersInGroup: Partial<Record<CurrencyCode, number>>; // Stores amount owed per currency
+  netBalance: Partial<Record<CurrencyCode, number>>; // Stores net balance per currency
 }
+
 
 export enum ActivityActionType {
   GROUP_CREATED = "GROUP_CREATED",
@@ -196,7 +198,7 @@ export interface GroupActivityLogEntry {
   actorDisplayName: string;
   actionType: ActivityActionType;
   details: string;
-  timestamp: string;
+  timestamp: string; // ISO string
   relatedMemberId?: string;
   relatedMemberName?: string;
   relatedExpenseId?: string;
@@ -211,17 +213,16 @@ export interface Budget {
   name: string;
   category: string;
   amount: number;
-  period: "monthly";
-  startDate: string;
-  endDate: string;
-  createdAt: string;
-  updatedAt?: string;
+  period: "monthly"; // For now, only monthly. Can be extended.
+  startDate: string; // ISO string YYYY-MM-DD
+  endDate: string; // ISO string YYYY-MM-DD
+  createdAt: string; // ISO string
+  updatedAt?: string; // ISO string
 }
 
 export type BudgetFormData = {
   name: string;
   category: string;
-  amount: string;
+  amount: string; // Input as string, converted to number
   period: "monthly";
 }
-
