@@ -3,7 +3,7 @@
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
 import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry, Budget, BudgetFormData } from '@/lib/types';
-import { startOfMonth, endOfMonth, formatISO } from 'date-fns';
+import { startOfMonth, endOfMonth, formatISO, parseISO } from 'date-fns';
 
 const EXPENSES_COLLECTION = 'expenses';
 const USERS_COLLECTION = 'users';
@@ -66,6 +66,9 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
       notes: expenseData.notes || '',
       receiptUrl: expenseData.receiptUrl || null,
       createdAt: Timestamp.now(),
+      isRecurring: expenseData.isRecurring || false,
+      recurrence: expenseData.recurrence || 'none',
+      recurrenceEndDate: expenseData.recurrenceEndDate ? Timestamp.fromDate(parseISO(expenseData.recurrenceEndDate)) : null,
     };
 
     if (expenseData.groupId && expenseData.groupName) {
@@ -95,6 +98,26 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
   }
 }
 
+function mapExpenseDocumentToExpenseObject(doc: any): Expense {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    description: data.description,
+    amount: data.amount,
+    category: data.category,
+    date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
+    notes: data.notes,
+    receiptUrl: data.receiptUrl,
+    groupId: data.groupId,
+    groupName: data.groupName,
+    createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+    userId: data.userId,
+    isRecurring: data.isRecurring,
+    recurrence: data.recurrence,
+    recurrenceEndDate: data.recurrenceEndDate ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] : undefined,
+  };
+}
+
 export async function getExpensesByUser(userId: string): Promise<Expense[]> {
   try {
     if (!userId) return [];
@@ -104,24 +127,7 @@ export async function getExpensesByUser(userId: string): Promise<Expense[]> {
       orderBy('date', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    const expenses: Expense[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      expenses.push({
-        id: doc.id,
-        description: data.description,
-        amount: data.amount,
-        category: data.category,
-        date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-        notes: data.notes,
-        receiptUrl: data.receiptUrl,
-        groupId: data.groupId,
-        groupName: data.groupName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-        userId: data.userId,
-      });
-    });
-    return expenses;
+    return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
   } catch (error) {
     console.error("Error getting documents: ", error);
     throw error;
@@ -138,24 +144,7 @@ export async function getRecentExpensesByUser(userId: string, count: number = 5)
       limit(count)
     );
     const querySnapshot = await getDocs(q);
-    const expenses: Expense[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      expenses.push({
-        id: doc.id,
-        description: data.description,
-        amount: data.amount,
-        category: data.category,
-        date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-        notes: data.notes,
-        receiptUrl: data.receiptUrl,
-        groupId: data.groupId,
-        groupName: data.groupName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-        userId: data.userId,
-      });
-    });
-    return expenses;
+    return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
   } catch (error) {
     console.error("Error getting recent documents: ", error);
     throw error;
@@ -167,20 +156,7 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        description: data.description,
-        amount: data.amount,
-        category: data.category,
-        date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-        notes: data.notes,
-        receiptUrl: data.receiptUrl,
-        groupId: data.groupId,
-        groupName: data.groupName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-        userId: data.userId,
-      };
+      return mapExpenseDocumentToExpenseObject(docSnap);
     } else {
       console.log("No such document!");
       return null;
@@ -199,24 +175,30 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
     if (expenseData.description !== undefined) updateData.description = expenseData.description;
     if (expenseData.amount !== undefined) updateData.amount = parseFloat(expenseData.amount);
     if (expenseData.category !== undefined) updateData.category = expenseData.category;
-    if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(new Date(expenseData.date));
+    if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(parseISO(expenseData.date));
     if (expenseData.notes !== undefined) updateData.notes = expenseData.notes;
     
-    if (expenseData.receiptUrl === null) { // Explicitly set to null for removal
+    if (expenseData.receiptUrl === null) { 
         updateData.receiptUrl = null;
-    } else if (expenseData.receiptUrl !== undefined) { // Only update if a new URL is provided
+    } else if (expenseData.receiptUrl !== undefined) { 
         updateData.receiptUrl = expenseData.receiptUrl;
     }
 
     if (expenseData.groupId) {
       updateData.groupId = expenseData.groupId;
       updateData.groupName = expenseData.groupName;
-    } else if (expenseData.groupId === '' || expenseData.groupId === null) { // Check for empty string or explicit null
+    } else if (expenseData.groupId === '' || expenseData.groupId === null) { 
       updateData.groupId = null;
       updateData.groupName = null;
     }
+
+    if (expenseData.isRecurring !== undefined) updateData.isRecurring = expenseData.isRecurring;
+    if (expenseData.recurrence !== undefined) updateData.recurrence = expenseData.recurrence;
+    if (expenseData.recurrenceEndDate !== undefined) {
+      updateData.recurrenceEndDate = expenseData.recurrenceEndDate ? Timestamp.fromDate(parseISO(expenseData.recurrenceEndDate)) : null;
+    }
     
-    if (Object.keys(updateData).length > 1) { // Ensure there's more than just updatedAt
+    if (Object.keys(updateData).length > 1) { 
         await updateDoc(docRef, updateData);
     }
   } catch (error) {
@@ -245,24 +227,7 @@ export async function getExpensesByGroupId(groupId: string): Promise<Expense[]> 
       orderBy('date', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    const expenses: Expense[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      expenses.push({
-        id: doc.id,
-        description: data.description,
-        amount: data.amount,
-        category: data.category,
-        date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-        notes: data.notes,
-        receiptUrl: data.receiptUrl,
-        groupId: data.groupId,
-        groupName: data.groupName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-        userId: data.userId,
-      });
-    });
-    return expenses;
+    return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
   } catch (error) {
     console.error("Error getting expenses by group ID: ", error);
     throw error;
@@ -1039,7 +1004,7 @@ export async function addReminder(userId: string, reminderData: ReminderFormData
       userId,
       title: reminderData.title,
       notes: reminderData.notes || '',
-      dueDate: Timestamp.fromDate(new Date(reminderData.dueDate)),
+      dueDate: Timestamp.fromDate(parseISO(reminderData.dueDate)),
       recurrence: reminderData.recurrence,
       isCompleted: false,
       createdAt: now,
@@ -1089,7 +1054,7 @@ export async function updateReminder(reminderId: string, data: ReminderFormData)
     await updateDoc(reminderRef, {
       title: data.title,
       notes: data.notes || '',
-      dueDate: Timestamp.fromDate(new Date(data.dueDate)),
+      dueDate: Timestamp.fromDate(parseISO(data.dueDate)),
       recurrence: data.recurrence,
       updatedAt: Timestamp.now(),
     });
@@ -1226,3 +1191,4 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
+

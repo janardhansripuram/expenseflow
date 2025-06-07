@@ -13,6 +13,8 @@ export type NavItem = {
   submenu?: NavItem[];
 };
 
+export type RecurrenceType = "none" | "daily" | "weekly" | "monthly" | "yearly";
+
 export interface Expense {
   id?: string; // Firestore document ID
   description: string;
@@ -25,6 +27,9 @@ export interface Expense {
   userId: string;
   groupId?: string; // ID of the group this expense belongs to
   groupName?: string; // Denormalized name of the group
+  isRecurring?: boolean;
+  recurrence?: RecurrenceType;
+  recurrenceEndDate?: string; // ISO string YYYY-MM-DD
 }
 
 export type ExpenseFormData = {
@@ -37,6 +42,9 @@ export type ExpenseFormData = {
   groupName?: string; // Optional: passed to firestore, derived from selected group
   receiptUrl?: string;
   receiptFile?: File | null;
+  isRecurring?: boolean;
+  recurrence?: RecurrenceType;
+  recurrenceEndDate?: string; // YYYY-MM-DD
 };
 
 export interface UserProfile {
@@ -105,14 +113,12 @@ export interface SplitExpense {
   notes?: string;
 }
 
-export type RecurrenceType = "none" | "daily" | "weekly" | "monthly" | "yearly";
-
 export interface Reminder {
   id?: string;
   userId: string;
   title: string;
   notes?: string;
-  dueDate: string; // This is already a string, used for yyyy-MM-dd
+  dueDate: string; 
   recurrence: RecurrenceType;
   isCompleted: boolean;
   createdAt: string;
@@ -153,7 +159,7 @@ export interface GroupActivityLogEntry {
   actorDisplayName: string;
   actionType: ActivityActionType;
   details: string;
-  timestamp: string; // Changed from Timestamp
+  timestamp: string; 
   relatedMemberId?: string;
   relatedMemberName?: string;
   relatedExpenseId?: string;
@@ -166,19 +172,18 @@ export interface Budget {
   id?: string;
   userId: string;
   name: string;
-  category: string; // "Overall" or a specific expense category
+  category: string; 
   amount: number;
-  period: "monthly"; // Initially just monthly
-  startDate: string; // YYYY-MM-DD ISO string from Date
-  endDate: string; // YYYY-MM-DD ISO string from Date
-  createdAt: string; // ISO string from Timestamp
-  updatedAt?: string; // ISO string from Timestamp
+  period: "monthly"; 
+  startDate: string; 
+  endDate: string; 
+  createdAt: string; 
+  updatedAt?: string; 
 }
 
 export interface BudgetFormData {
   name: string;
   category: string;
-  amount: string; // Input as string, converted to number
+  amount: string; 
   period: "monthly";
-  // startDate and endDate will be calculated on save for now
 }
