@@ -47,6 +47,25 @@ export type ExpenseFormData = {
   recurrenceEndDate?: string; // YYYY-MM-DD
 };
 
+export interface Income {
+  id?: string;
+  userId: string;
+  source: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type IncomeFormData = {
+  source: string;
+  amount: string; // Input as string, converted to number
+  date: string; // YYYY-MM-DD
+  notes?: string;
+};
+
+
 export interface UserProfile {
   uid: string;
   email: string;

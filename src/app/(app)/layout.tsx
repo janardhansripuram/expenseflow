@@ -25,7 +25,10 @@ import {
   ListChecks,
   UserCog,
   Landmark,
-  Target, // Added Target icon for Budgets
+  Target,
+  Banknote, // Added Banknote for Income
+  TrendingUp, // Re-using for Income view
+  CreditCard, // Re-using for Add Income
 } from 'lucide-react';
 import {
   SidebarProvider,
@@ -45,7 +48,12 @@ const navItems: NavItem[] = [
       { title: 'Scan Receipt (OCR)', href: '/expenses/scan', icon: ScanLine },
     ]
   },
-  { title: 'Budgets', href: '/budgets', icon: Target }, // Added Budgets Link
+  { title: 'Income', href: '/income', icon: Banknote, submenu: [
+      { title: 'View Income', href: '/income', icon: TrendingUp },
+      { title: 'Add Income', href: '/income/add', icon: CreditCard },
+    ]
+  },
+  { title: 'Budgets', href: '/budgets', icon: Target },
   { title: 'Split Expenses', href: '/split', icon: Split },
   { title: 'Groups', href: '/groups', icon: Users },
   { title: 'Friends', href: '/friends', icon: UserPlus },
@@ -60,22 +68,28 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
     if (item.href === pathname && !item.submenu) return item.title;
     if (pathname.startsWith(item.href) && item.submenu) {
         for (const subItem of item.submenu) {
-            if (subItem.href === pathname) return item.title;
+            if (subItem.href === pathname) return item.title; // Return parent title for submenu items
         }
+        // Fallback for dynamic child routes not explicitly in submenu
         if (item.href !== '/dashboard' && pathname.startsWith(item.href + '/')) {
             if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense';
-            if (pathname.startsWith('/expenses/view/')) return 'View Expense';
+            if (pathname.startsWith('/income/edit/')) return 'Edit Income';
             if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
             if (pathname.startsWith('/split/edit/')) return 'Edit Split';
-            return item.title;
+            return item.title; // Parent title for other dynamic routes
         }
         if (item.href === pathname) return item.title;
     }
   }
+  // Handle specific dynamic routes not covered by the above loop
   if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense';
+  if (pathname.startsWith('/income/edit/')) return 'Edit Income';
   if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
-  if (pathname === '/expenses/scan') return 'Scan Receipt';
   if (pathname.startsWith('/split/edit/')) return 'Edit Split';
+
+  // Handle specific static routes that might be top-level or missed
+  if (pathname === '/expenses/scan') return 'Scan Receipt';
+  if (pathname === '/income/add') return 'Add Income';
   if (pathname === '/debts') return 'Debts';
   if (pathname === '/budgets') return 'Budgets';
 

@@ -2,10 +2,11 @@
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry, Budget, BudgetFormData } from '@/lib/types';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry, Budget, BudgetFormData, Income, IncomeFormData } from '@/lib/types';
 import { startOfMonth, endOfMonth, formatISO, parseISO } from 'date-fns';
 
 const EXPENSES_COLLECTION = 'expenses';
+const INCOME_COLLECTION = 'income'; // New collection for income
 const USERS_COLLECTION = 'users';
 const FRIEND_REQUESTS_COLLECTION = 'friendRequests';
 const FRIENDS_SUBCOLLECTION = 'friends';
@@ -62,7 +63,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
       description: expenseData.description,
       amount: parseFloat(expenseData.amount),
       category: expenseData.category,
-      date: Timestamp.fromDate(new Date(expenseData.date)),
+      date: Timestamp.fromDate(parseISO(expenseData.date)),
       notes: expenseData.notes || '',
       receiptUrl: expenseData.receiptUrl || null,
       createdAt: Timestamp.now(),
@@ -112,8 +113,8 @@ function mapExpenseDocumentToExpenseObject(doc: any): Expense {
     groupName: data.groupName,
     createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
     userId: data.userId,
-    isRecurring: data.isRecurring,
-    recurrence: data.recurrence,
+    isRecurring: data.isRecurring || false,
+    recurrence: data.recurrence || 'none',
     recurrenceEndDate: data.recurrenceEndDate ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] : undefined,
   };
 }
@@ -230,6 +231,100 @@ export async function getExpensesByGroupId(groupId: string): Promise<Expense[]> 
     return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
   } catch (error) {
     console.error("Error getting expenses by group ID: ", error);
+    throw error;
+  }
+}
+
+// Income Functions
+export async function addIncome(userId: string, incomeData: IncomeFormData): Promise<string> {
+  try {
+    if (!userId) throw new Error("User ID is required to add income.");
+    const incomeDoc = {
+      userId,
+      source: incomeData.source,
+      amount: parseFloat(incomeData.amount),
+      date: Timestamp.fromDate(parseISO(incomeData.date)),
+      notes: incomeData.notes || '',
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    };
+    const docRef = await addDoc(collection(db, INCOME_COLLECTION), incomeDoc);
+    return docRef.id;
+  } catch (error) {
+    console.error("Error adding income: ", error);
+    throw error;
+  }
+}
+
+function mapIncomeDocumentToIncomeObject(doc: any): Income {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    userId: data.userId,
+    source: data.source,
+    amount: data.amount,
+    date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
+    notes: data.notes,
+    createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+    updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate().toISOString() : undefined,
+  };
+}
+
+export async function getIncomeByUser(userId: string): Promise<Income[]> {
+  try {
+    if (!userId) return [];
+    const q = query(
+      collection(db, INCOME_COLLECTION),
+      where('userId', '==', userId),
+      orderBy('date', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(mapIncomeDocumentToIncomeObject);
+  } catch (error) {
+    console.error("Error getting income: ", error);
+    throw error;
+  }
+}
+
+export async function getIncomeById(incomeId: string): Promise<Income | null> {
+  try {
+    const docRef = doc(db, INCOME_COLLECTION, incomeId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return mapIncomeDocumentToIncomeObject(docSnap);
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting income by ID: ", error);
+    throw error;
+  }
+}
+
+export async function updateIncome(incomeId: string, incomeData: Partial<IncomeFormData>): Promise<void> {
+  try {
+    const docRef = doc(db, INCOME_COLLECTION, incomeId);
+    const updateData: { [key: string]: any } = { updatedAt: Timestamp.now() };
+
+    if (incomeData.source !== undefined) updateData.source = incomeData.source;
+    if (incomeData.amount !== undefined) updateData.amount = parseFloat(incomeData.amount);
+    if (incomeData.date !== undefined) updateData.date = Timestamp.fromDate(parseISO(incomeData.date));
+    if (incomeData.notes !== undefined) updateData.notes = incomeData.notes;
+
+    if (Object.keys(updateData).length > 1) {
+      await updateDoc(docRef, updateData);
+    }
+  } catch (error) {
+    console.error("Error updating income: ", error);
+    throw error;
+  }
+}
+
+export async function deleteIncome(incomeId: string): Promise<void> {
+  try {
+    const docRef = doc(db, INCOME_COLLECTION, incomeId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error("Error deleting income: ", error);
     throw error;
   }
 }
@@ -1191,4 +1286,3 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
-
