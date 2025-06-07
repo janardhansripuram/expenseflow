@@ -107,6 +107,7 @@ export function GroupExpenseSplitDialog({
       totalAmount: expenseToSplit.amount,
       paidBy: expenseToSplit.userId, // The user who originally paid for the group expense
       participants: participants,
+      groupId: group.id, // Explicitly add groupId
       notes: `Split of group expense: "${expenseToSplit.description}" for group "${group.name}"`,
     };
 

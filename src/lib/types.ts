@@ -95,7 +95,7 @@ export interface SplitExpense {
   paidBy: string; // UID of the user who paid the original expense
   participants: SplitParticipant[];
   involvedUserIds: string[]; // Array of UIDs for querying (payer + participants)
-  groupId?: string; // Optional, if split within a group
+  groupId?: string; // Optional, if split originated from a group expense
   createdAt: Timestamp;
   notes?: string;
 }
@@ -122,3 +122,12 @@ export type ReminderFormData = {
   recurrence: RecurrenceType;
 };
 
+// Type for Group Balances display
+export interface GroupMemberBalance {
+  uid: string;
+  displayName: string;
+  email: string;
+  paidForGroup: number;
+  owesToOthersInGroup: number;
+  netBalance: number;
+}

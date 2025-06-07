@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -36,14 +36,15 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2 } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails } from "@/lib/firebase/firestore";
-import type { Group, Friend, UserProfile, GroupMemberDetail, Expense } from "@/lib/types";
+import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId } from "@/lib/firebase/firestore";
+import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance } from "@/lib/types";
 import Image from "next/image";
 import { format } from "date-fns";
 import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
+import { Badge } from "@/components/ui/badge";
 
 const groupNameSchema = z.object({
   name: z.string().min(1, "Group name is required").max(100, "Group name must be 100 characters or less"),
@@ -62,9 +63,13 @@ export default function GroupDetailsPage() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [groupExpenses, setGroupExpenses] = useState<Expense[]>([]);
+  const [splitExpensesForGroup, setSplitExpensesForGroup] = useState<SplitExpense[]>([]);
+  const [groupMemberBalances, setGroupMemberBalances] = useState<GroupMemberBalance[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
+  const [isLoadingSplits, setIsLoadingSplits] = useState(true);
+  const [isLoadingBalances, setIsLoadingBalances] = useState(true);
   const [isProcessingMember, setIsProcessingMember] = useState<string | null>(null);
   const [isAddMembersDialogOpen, setIsAddMembersDialogOpen] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<Record<string, boolean>>({});
@@ -80,22 +85,38 @@ export default function GroupDetailsPage() {
     defaultValues: { name: "" },
   });
 
-  const fetchGroupData = useCallback(async (refreshExpenses = false) => {
+  const fetchGroupData = useCallback(async (refreshAll = false) => {
     if (!user || !groupId) return;
-    if (!refreshExpenses) setIsLoading(true); // Only show main loader if not just refreshing expenses
-    setIsLoadingExpenses(true);
+
+    if (refreshAll) {
+        setIsLoading(true);
+        setIsLoadingExpenses(true);
+        setIsLoadingSplits(true);
+        setIsLoadingBalances(true);
+    } else {
+        // Selective loading, usually for non-critical refreshes
+        // For now, a simple refresh of expenses and splits is enough
+        setIsLoadingExpenses(true);
+        setIsLoadingSplits(true);
+        setIsLoadingBalances(true);
+    }
+    
     try {
-      const promises: any[] = [
-        getGroupDetails(groupId),
-        getExpensesByGroupId(groupId)
-      ];
-      // Only fetch friends and profile if not already loaded or if main load
-      if (!friends.length || !currentUserProfile || !refreshExpenses) {
-        promises.splice(1,0, getFriends(user.uid));
-        promises.splice(2,0, getUserProfile(user.uid));
-      }
+      const groupDataPromise = getGroupDetails(groupId);
+      const expensesPromise = getExpensesByGroupId(groupId);
+      const splitsPromise = getSplitExpensesByGroupId(groupId);
       
-      const [groupData, fetchedFriends, fetchedProfile, expensesForGroup] = await Promise.all(promises.length === 4 ? promises : [promises[0], friends, currentUserProfile, promises[1]]);
+      let friendsPromise = Promise.resolve(friends);
+      let profilePromise = Promise.resolve(currentUserProfile);
+
+      if (refreshAll || !friends.length || !currentUserProfile) {
+        friendsPromise = getFriends(user.uid);
+        profilePromise = getUserProfile(user.uid);
+      }
+
+      const [groupData, fetchedFriends, fetchedProfile, expensesForGroup, groupSplits] = await Promise.all([
+        groupDataPromise, friendsPromise, profilePromise, expensesPromise, splitsPromise
+      ]);
 
       if (!groupData) {
         toast({ variant: "destructive", title: "Error", description: "Group not found." });
@@ -109,10 +130,11 @@ export default function GroupDetailsPage() {
       }
       
       setGroup(groupData);
-      groupNameForm.setValue("name", groupData.name); // For edit dialog
-      if (fetchedFriends) setFriends(fetchedFriends);
-      if (fetchedProfile) setCurrentUserProfile(fetchedProfile);
+      groupNameForm.setValue("name", groupData.name);
+      setFriends(fetchedFriends || friends); // Use fetched if new, else existing
+      setCurrentUserProfile(fetchedProfile || currentUserProfile);
       setGroupExpenses(expensesForGroup);
+      setSplitExpensesForGroup(groupSplits);
 
     } catch (error) {
       console.error("Failed to fetch group details:", error);
@@ -120,12 +142,70 @@ export default function GroupDetailsPage() {
     } finally {
       setIsLoading(false);
       setIsLoadingExpenses(false);
+      setIsLoadingSplits(false);
     }
-  }, [user, groupId, toast, router, friends, currentUserProfile, groupNameForm]);
+  }, [user, groupId, toast, router, groupNameForm, friends, currentUserProfile]);
+
 
   useEffect(() => {
-    fetchGroupData();
+    fetchGroupData(true); // Initial full fetch
   }, [fetchGroupData]);
+
+
+  // Calculate balances whenever group, groupExpenses, or splitExpensesForGroup change
+  useEffect(() => {
+    if (!group || isLoadingExpenses || isLoadingSplits) {
+      setIsLoadingBalances(true);
+      return;
+    }
+    setIsLoadingBalances(true);
+
+    const balances: Record<string, { paidForGroup: number; owesToOthersInGroup: number }> = {};
+
+    group.memberDetails.forEach(member => {
+      balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
+    });
+
+    // Process direct group expenses (user who paid gets credit)
+    groupExpenses.forEach(expense => {
+      if (balances[expense.userId]) {
+        balances[expense.userId].paidForGroup += expense.amount;
+      }
+    });
+
+    // Process formal group splits
+    splitExpensesForGroup.forEach(split => {
+      if (balances[split.paidBy]) {
+        // The payer fronted the total amount for this split transaction
+        balances[split.paidBy].paidForGroup += split.totalAmount;
+      }
+      split.participants.forEach(participant => {
+        if (balances[participant.userId]) {
+          if (participant.userId !== split.paidBy && !participant.isSettled) {
+            balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
+          }
+        }
+      });
+    });
+    
+    const finalBalances: GroupMemberBalance[] = group.memberDetails.map(member => {
+      const paid = balances[member.uid]?.paidForGroup || 0;
+      const owed = balances[member.uid]?.owesToOthersInGroup || 0;
+      return {
+        uid: member.uid,
+        displayName: member.displayName || member.email,
+        email: member.email,
+        paidForGroup: paid,
+        owesToOthersInGroup: owed,
+        netBalance: paid - owed,
+      };
+    }).sort((a,b) => b.netBalance - a.netBalance); // Sort by net balance, highest creditor first
+
+    setGroupMemberBalances(finalBalances);
+    setIsLoadingBalances(false);
+  }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits]);
+
+
 
   const handleToggleFriendSelection = (friendId: string) => {
     setSelectedFriendsToAdd(prev => ({ ...prev, [friendId]: !prev[friendId] }));
@@ -156,7 +236,7 @@ export default function GroupDetailsPage() {
       toast({ title: "Members Added", description: "New members have been added to the group." });
       setSelectedFriendsToAdd({});
       setIsAddMembersDialogOpen(false);
-      fetchGroupData(); 
+      fetchGroupData(true); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Add Members", description: error.message || "Could not add members." });
     } finally {
@@ -187,7 +267,7 @@ export default function GroupDetailsPage() {
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
         router.push("/groups");
       } else {
-        fetchGroupData(); 
+        fetchGroupData(true); 
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Remove Member", description: error.message || "Could not remove member." });
@@ -212,10 +292,7 @@ export default function GroupDetailsPage() {
       toast({ title: "Group Name Updated", description: `Group name changed to "${values.name}".` });
       setGroup(prev => prev ? { ...prev, name: values.name } : null);
       setIsEditGroupNameDialogOpen(false);
-      // No need to call fetchGroupData here if only name changes locally,
-      // but if other parts of groupData could be stale, fetch it.
-      // We also need to refresh expenses if groupName is denormalized there.
-      fetchGroupData(true); // Refresh expenses to get updated groupName if it's on expenses
+      fetchGroupData(true); 
     } catch (error) {
       console.error("Error updating group name:", error);
       toast({ variant: "destructive", title: "Update Failed", description: "Could not update group name." });
@@ -326,8 +403,8 @@ export default function GroupDetailsPage() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        <Card className="shadow-lg md:col-span-1">
+      <div className="grid lg:grid-cols-3 gap-6">
+        <Card className="shadow-lg lg:col-span-1">
             <CardHeader className="flex flex-row items-center justify-between">
             <div>
                 <CardTitle className="font-headline flex items-center"><Users className="mr-2 h-5 w-5"/>Group Members</CardTitle>
@@ -470,88 +547,124 @@ export default function GroupDetailsPage() {
             </CardContent>
         </Card>
 
-        <Card className="shadow-lg md:col-span-2">
-            <CardHeader>
-                <CardTitle className="font-headline flex items-center"><CircleDollarSign className="mr-2 h-5 w-5"/>Group Expenses</CardTitle>
-                <CardDescription>Expenses associated with {group.name}.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                {isLoadingExpenses ? (
-                    <div className="flex items-center justify-center py-10">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        <p className="ml-2">Loading expenses...</p>
-                    </div>
-                ) : groupExpenses.length > 0 ? (
-                    <ScrollArea className="h-[300px]">
-                    <div className="space-y-3 pr-2">
-                        {groupExpenses.map(expense => (
-                            <Card key={expense.id} className="shadow-sm">
-                                <CardContent className="p-3">
-                                   <div className="flex justify-between items-start">
-                                     <div>
-                                       <p className="font-medium text-sm">{expense.description}</p>
-                                       <p className="text-xs text-muted-foreground">
-                                          {format(new Date(expense.date), "MMM dd, yyyy")} - {expense.category}
-                                       </p>
-                                       <p className="text-xs text-muted-foreground">
-                                          Added by: {group.memberDetails.find(m => m.uid === expense.userId)?.displayName || group.memberDetails.find(m => m.uid === expense.userId)?.email || 'Unknown user'}
-                                       </p>
-                                     </div>
-                                     <div className="text-right flex flex-col items-end gap-1">
-                                        <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
-                                        <Button 
-                                            variant="outline" 
-                                            size="sm" 
-                                            className="text-xs"
-                                            onClick={() => handleOpenSplitDialog(expense)}
-                                        >
-                                            <Split className="mr-1.5 h-3.5 w-3.5"/> Split This Expense
-                                        </Button>
-                                     </div>
-                                   </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                    </ScrollArea>
-                ) : (
-                    <div className="text-center py-10">
-                        <List className="mx-auto h-12 w-12 text-muted-foreground" />
-                        <p className="mt-4 text-muted-foreground text-lg">No expenses recorded for this group yet.</p>
-                    </div>
-                )}
-                 <Button 
-                    variant="default" 
-                    className="w-full mt-6" 
-                    onClick={() => router.push(`/expenses/add?groupId=${groupId}&groupName=${encodeURIComponent(group.name)}`)}
-                >
-                    <CircleDollarSign className="mr-2 h-4 w-4" /> Add New Expense to This Group
-                </Button>
-            </CardContent>
-        </Card>
+        <div className="lg:col-span-2 space-y-6">
+            <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center"><CircleDollarSign className="mr-2 h-5 w-5"/>Group Expenses</CardTitle>
+                    <CardDescription>Expenses associated with {group.name}.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {isLoadingExpenses ? (
+                        <div className="flex items-center justify-center py-10">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="ml-2">Loading expenses...</p>
+                        </div>
+                    ) : groupExpenses.length > 0 ? (
+                        <ScrollArea className="h-[200px] md:h-[300px]">
+                        <div className="space-y-3 pr-2">
+                            {groupExpenses.map(expense => (
+                                <Card key={expense.id} className="shadow-sm">
+                                    <CardContent className="p-3">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                        <p className="font-medium text-sm">{expense.description}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {format(new Date(expense.date), "MMM dd, yyyy")} - {expense.category}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Added by: {group.memberDetails.find(m => m.uid === expense.userId)?.displayName || group.memberDetails.find(m => m.uid === expense.userId)?.email || 'Unknown user'}
+                                        </p>
+                                        </div>
+                                        <div className="text-right flex flex-col items-end gap-1">
+                                            <p className="font-semibold text-sm">{formatCurrency(expense.amount)}</p>
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                className="text-xs"
+                                                onClick={() => handleOpenSplitDialog(expense)}
+                                            >
+                                                <Split className="mr-1.5 h-3.5 w-3.5"/> Split This Expense
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                        </ScrollArea>
+                    ) : (
+                        <div className="text-center py-10">
+                            <List className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <p className="mt-4 text-muted-foreground text-lg">No expenses recorded for this group yet.</p>
+                        </div>
+                    )}
+                    <Button 
+                        variant="default" 
+                        className="w-full mt-6" 
+                        onClick={() => router.push(`/expenses/add?groupId=${groupId}&groupName=${encodeURIComponent(group.name)}`)}
+                    >
+                        <CircleDollarSign className="mr-2 h-4 w-4" /> Add New Expense to This Group
+                    </Button>
+                </CardContent>
+            </Card>
+
+            <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center"><Scale className="mr-2 h-5 w-5"/>Group Balances</CardTitle>
+                    <CardDescription>Summary of who paid and who owes within the group.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {isLoadingBalances ? (
+                        <div className="flex items-center justify-center py-10">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="ml-2">Loading balances...</p>
+                        </div>
+                    ) : groupMemberBalances.length > 0 ? (
+                        <ScrollArea className="h-[250px] md:h-[300px]">
+                            <div className="space-y-3 pr-2">
+                                {groupMemberBalances.map(memberBalance => (
+                                    <Card key={memberBalance.uid} className="shadow-sm">
+                                        <CardContent className="p-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Avatar className="h-8 w-8">
+                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(memberBalance.displayName, memberBalance.email)}`} alt={memberBalance.displayName} data-ai-hint="person avatar"/>
+                                                        <AvatarFallback>{getInitials(memberBalance.displayName, memberBalance.email)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === user?.uid ? "(You)" : ""}</span>
+                                                </div>
+                                                <Badge variant={memberBalance.netBalance >= 0 ? "default" : "destructive"} className={memberBalance.netBalance >= 0 ? "bg-green-600 hover:bg-green-700" : ""}>
+                                                    {memberBalance.netBalance >= 0 ? <TrendingUp className="mr-1 h-4 w-4"/> : <TrendingDown className="mr-1 h-4 w-4"/>}
+                                                    {formatCurrency(memberBalance.netBalance)}
+                                                </Badge>
+                                            </div>
+                                            <div className="mt-2 text-xs text-muted-foreground grid grid-cols-2 gap-x-2">
+                                                <p>Paid for Group: <span className="font-medium text-green-600">{formatCurrency(memberBalance.paidForGroup)}</span></p>
+                                                <p>Owes from Splits: <span className="font-medium text-red-600">{formatCurrency(memberBalance.owesToOthersInGroup)}</span></p>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    ) : (
+                        <p className="text-muted-foreground text-center py-4">No balance data to display.</p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-4">
+                        Balances are based on direct group expenses paid and formalized splits. A positive net balance means the member is owed by others overall; a negative means they owe. Use &quot;Split this Expense&quot; on direct group expenses to formalize individual shares.
+                    </p>
+                </CardContent>
+            </Card>
+        </div>
       </div>
       
-      <Card className="shadow-lg mt-6">
-        <CardHeader>
-          <CardTitle className="font-headline flex items-center"><ShieldAlert className="mr-2 h-5 w-5"/>Admin & Advanced Settings</CardTitle>
-          <CardDescription>Further group management options (e.g., group balances, transfer ownership) are planned for future updates.</CardDescription>
-        </CardHeader>
-        <CardContent>
-            <p className="text-muted-foreground">Functionality to calculate group balances, settle debts within the group, and manage advanced settings will be available here in a future update.</p>
-            <Image 
-                src="https://placehold.co/600x200.png?text=Advanced+Group+Features"
-                alt="Placeholder for advanced group features UI"
-                width={600}
-                height={200}
-                className="rounded-md mx-auto border shadow-sm my-4"
-                data-ai-hint="dashboard charts analytics"
-            />
-        </CardContent>
-      </Card>
       {expenseToSplit && group && (
         <GroupExpenseSplitDialog
           isOpen={isSplitExpenseDialogOpen}
-          onOpenChange={setIsSplitExpenseDialogOpen}
+          onOpenChange={(isOpen) => {
+            setIsSplitExpenseDialogOpen(isOpen);
+            if (!isOpen) fetchGroupData(false); // Refresh expenses and splits when dialog closes
+          }}
           expenseToSplit={expenseToSplit}
           group={group}
           currentUserProfile={currentUserProfile}
@@ -560,4 +673,3 @@ export default function GroupDetailsPage() {
     </div>
   );
 }
-```

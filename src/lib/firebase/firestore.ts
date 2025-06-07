@@ -241,9 +241,6 @@ export async function updateUserProfile(userId: string, data: { displayName?: st
   try {
     const userRef = doc(db, USERS_COLLECTION, userId);
     await updateDoc(userRef, data);
-    // Note: Denormalized displayName in friends lists or groupMemberDetails of other users
-    // would not be updated by this. This requires more complex backend logic (e.g. Cloud Functions)
-    // or fetching fresh profile data at display time.
   } catch (error) {
     console.error("Error updating user profile: ", error);
     throw error;
@@ -468,7 +465,6 @@ export async function updateGroupDetails(groupId: string, data: { name?: string 
 
     batch.update(groupRef, data);
 
-    // If group name changed, update denormalized groupName in expenses
     if (data.name) {
       const expensesQuery = query(collection(db, EXPENSES_COLLECTION), where('groupId', '==', groupId));
       const expensesSnapshot = await getDocs(expensesQuery);
@@ -553,6 +549,7 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
 // Split Expense Functions
 type CreateSplitExpenseData = Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'> & {
   originalExpenseDescription: string;
+  groupId?: string; // Add groupId here
 };
 
 export async function createSplitExpense(splitData: CreateSplitExpenseData): Promise<string> {
@@ -564,11 +561,17 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
 
     const involvedUserIds = Array.from(new Set([splitData.paidBy, ...splitData.participants.map(p => p.userId)]));
 
-    const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), {
+    const dataToSave: any = {
       ...splitData,
       involvedUserIds,
       createdAt: Timestamp.now(),
-    });
+    };
+
+    if (splitData.groupId) {
+      dataToSave.groupId = splitData.groupId;
+    }
+
+    const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), dataToSave);
     return docRef.id;
   } catch (error) {
     console.error("Error creating split expense: ", error);
@@ -592,6 +595,26 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
     } as SplitExpense));
   } catch (error) {
     console.error("Error getting split expenses for user: ", error);
+    throw error;
+  }
+}
+
+export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitExpense[]> {
+  try {
+    if (!groupId) return [];
+    const q = query(
+      collection(db, SPLIT_EXPENSES_COLLECTION),
+      where('groupId', '==', groupId),
+      orderBy('createdAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+      createdAt: docSnap.data().createdAt as Timestamp,
+    } as SplitExpense));
+  } catch (error) {
+    console.error("Error getting split expenses by group ID: ", error);
     throw error;
   }
 }
