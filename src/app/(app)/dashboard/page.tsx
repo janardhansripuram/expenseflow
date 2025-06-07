@@ -5,6 +5,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useRouter } from "next/navigation"; // Added useRouter
 import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon, BellRing, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getRecentExpensesByUser, getExpensesByUser, getRemindersByUser } from "@/lib/firebase/firestore";
@@ -22,10 +23,12 @@ interface ChartDataItem {
 
 interface ProcessedReminder extends Reminder {
   status: 'overdue' | 'dueToday' | 'upcoming';
+  dueDateObj: Date;
 }
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const router = useRouter(); // Initialized useRouter
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
   const [userReminders, setUserReminders] = useState<Reminder[]>([]);
@@ -273,21 +276,17 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ))}
-                 <Button variant="outline" className="w-full mt-2" asChild>
-                  <Link href="/reminders">
+                 <Button variant="outline" className="w-full mt-2" onClick={() => router.push('/reminders')}>
                     View All Reminders <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
+                  </Button>
               </div>
             ) : (
               <div className="space-y-4 text-center py-4">
                  <CheckCircle2 className="mx-auto h-10 w-10 text-green-500" />
                 <p className="text-sm text-muted-foreground">All caught up on reminders!</p>
-                 <Button variant="outline" className="w-full" asChild>
-                  <Link href="/reminders/add">
+                 <Button variant="outline" className="w-full" onClick={() => router.push('/reminders/add')}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Add New Reminder
-                  </Link>
-                </Button>
+                  </Button>
               </div>
             )}
           </CardContent>
