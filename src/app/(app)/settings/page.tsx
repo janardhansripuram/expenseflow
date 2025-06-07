@@ -14,32 +14,86 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { getUserProfile, updateUserProfile } from '@/lib/firebase/firestore';
-import { updateProfile as updateAuthProfile } from 'firebase/auth';
+import { updateProfile as updateAuthProfile, EmailAuthProvider, reauthenticateWithCredential, updatePassword, deleteUser } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
 import type { UserProfile } from '@/lib/types';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, ShieldAlert, Trash2, KeyRound } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useRouter } from 'next/navigation';
 
 const profileSchema = z.object({
   displayName: z.string().min(2, "Display name must be at least 2 characters.").max(50, "Display name must be 50 characters or less."),
-  email: z.string().email().optional(), // Email is not editable here, just for display
+  email: z.string().email().optional(), 
 });
-
 type ProfileFormData = z.infer<typeof profileSchema>;
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required."),
+  newPassword: z.string().min(6, "New password must be at least 6 characters."),
+  confirmNewPassword: z.string(),
+}).refine(data => data.newPassword === data.confirmNewPassword, {
+  message: "New passwords do not match.",
+  path: ["confirmNewPassword"],
+});
+type ChangePasswordFormData = z.infer<typeof changePasswordSchema>;
+
+const reAuthSchema = z.object({
+  password: z.string().min(1, "Password is required."),
+});
+type ReAuthFormData = z.infer<typeof reAuthSchema>;
+
 
 export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [userProfileData, setUserProfileData] = useState<UserProfile | null>(null);
 
-  const form = useForm<ProfileFormData>({
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const [isDeleteAccountReAuthOpen, setIsDeleteAccountReAuthOpen] = useState(false);
+  const [isDeleteAccountConfirmOpen, setIsDeleteAccountConfirmOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+
+  const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    defaultValues: {
-      displayName: "",
-      email: "",
-    },
+    defaultValues: { displayName: "", email: "" },
   });
+
+  const changePasswordForm = useForm<ChangePasswordFormData>({
+    resolver: zodResolver(changePasswordSchema),
+    defaultValues: { currentPassword: "", newPassword: "", confirmNewPassword: "" },
+  });
+
+  const reAuthForm = useForm<ReAuthFormData>({
+    resolver: zodResolver(reAuthSchema),
+    defaultValues: { password: "" },
+  });
+
 
   useEffect(() => {
     async function fetchProfile() {
@@ -49,7 +103,7 @@ export default function SettingsPage() {
           const profile = await getUserProfile(user.uid);
           if (profile) {
             setUserProfileData(profile);
-            form.reset({
+            profileForm.reset({
               displayName: profile.displayName || '',
               email: profile.email,
             });
@@ -63,9 +117,9 @@ export default function SettingsPage() {
       }
     }
     fetchProfile();
-  }, [user, form, toast]);
+  }, [user, profileForm, toast]);
 
-  async function onSubmit(values: ProfileFormData) {
+  async function onProfileSubmit(values: ProfileFormData) {
     if (!user || !userProfileData) {
       toast({ variant: "destructive", title: "Error", description: "User not found." });
       return;
@@ -85,6 +139,77 @@ export default function SettingsPage() {
       setIsSavingProfile(false);
     }
   }
+
+  async function onChangePasswordSubmit(values: ChangePasswordFormData) {
+    if (!user || !user.email) {
+        toast({ variant: "destructive", title: "Error", description: "User not found or email missing."});
+        return;
+    }
+    setIsChangingPassword(true);
+    try {
+        const credential = EmailAuthProvider.credential(user.email, values.currentPassword);
+        await reauthenticateWithCredential(user, credential);
+        await updatePassword(user, values.newPassword);
+        toast({ title: "Password Changed", description: "Your password has been successfully updated." });
+        setIsChangePasswordOpen(false);
+        changePasswordForm.reset();
+    } catch (error: any) {
+        console.error("Failed to change password:", error);
+        let description = "Could not change your password. Please verify your current password.";
+        if (error.code === 'auth/wrong-password') {
+            description = "Incorrect current password. Please try again.";
+        } else if (error.code === 'auth/too-many-requests') {
+            description = "Too many failed attempts. Please try again later.";
+        }
+        toast({ variant: "destructive", title: "Password Change Failed", description });
+    } finally {
+        setIsChangingPassword(false);
+    }
+  }
+
+  async function onDeleteAccountReAuthSubmit(values: ReAuthFormData) {
+    if (!user || !user.email) {
+      toast({ variant: "destructive", title: "Error", description: "User not found or email missing." });
+      return;
+    }
+    setIsDeletingAccount(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, values.password);
+      await reauthenticateWithCredential(user, credential);
+      setIsDeleteAccountReAuthOpen(false); // Close re-auth dialog
+      reAuthForm.reset();
+      setIsDeleteAccountConfirmOpen(true); // Open final confirmation dialog
+    } catch (error: any) {
+      console.error("Failed to re-authenticate for deletion:", error);
+      let description = "Could not verify your password.";
+       if (error.code === 'auth/wrong-password') {
+            description = "Incorrect password. Please try again.";
+        } else if (error.code === 'auth/too-many-requests') {
+            description = "Too many failed attempts. Please try again later.";
+        }
+      toast({ variant: "destructive", title: "Re-authentication Failed", description });
+    } finally {
+      setIsDeletingAccount(false); // Reset general deleting flag, confirmation will handle its own
+    }
+  }
+
+  async function confirmDeleteAccount() {
+    if (!user) return;
+    setIsDeletingAccount(true);
+    try {
+        await deleteUser(user);
+        toast({ title: "Account Deleted", description: "Your account has been permanently deleted." });
+        router.push("/login"); // Redirect to login or home page
+    } catch (error: any) {
+        console.error("Failed to delete account:", error);
+        toast({ variant: "destructive", title: "Deletion Failed", description: "Could not delete your account. Please try logging out and back in, then try again." });
+        setIsDeletingAccount(false);
+    } finally {
+        setIsDeleteAccountConfirmOpen(false);
+        // No need to setIsDeletingAccount(false) here if redirecting
+    }
+  }
+
 
   return (
     <div className="space-y-6">
@@ -124,10 +249,10 @@ export default function SettingsPage() {
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : userProfileData ? (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <Form {...profileForm}>
+              <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-6">
                 <FormField
-                  control={form.control}
+                  control={profileForm.control}
                   name="displayName"
                   render={({ field }) => (
                     <FormItem>
@@ -140,7 +265,7 @@ export default function SettingsPage() {
                   )}
                 />
                 <FormField
-                  control={form.control}
+                  control={profileForm.control}
                   name="email"
                   render={({ field }) => (
                     <FormItem>
@@ -169,14 +294,140 @@ export default function SettingsPage() {
 
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="font-headline">Account</CardTitle>
-          <CardDescription>Manage your account settings.</CardDescription>
+          <CardTitle className="font-headline">Account Security</CardTitle>
+          <CardDescription>Manage your account security settings.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">Account management features (e.g., change password, delete account) coming soon.</p>
+        <CardContent className="space-y-4">
+            {/* Change Password Section */}
+            <Dialog open={isChangePasswordOpen} onOpenChange={setIsChangePasswordOpen}>
+                <DialogTrigger asChild>
+                    <Button variant="outline">
+                        <KeyRound className="mr-2 h-4 w-4"/> Change Password
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Change Password</DialogTitle>
+                        <DialogDescription>Enter your current and new password below.</DialogDescription>
+                    </DialogHeader>
+                    <Form {...changePasswordForm}>
+                        <form onSubmit={changePasswordForm.handleSubmit(onChangePasswordSubmit)} className="space-y-4 py-2">
+                            <FormField
+                                control={changePasswordForm.control}
+                                name="currentPassword"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Current Password</FormLabel>
+                                        <FormControl><Input type="password" {...field} /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={changePasswordForm.control}
+                                name="newPassword"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>New Password</FormLabel>
+                                        <FormControl><Input type="password" {...field} /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={changePasswordForm.control}
+                                name="confirmNewPassword"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Confirm New Password</FormLabel>
+                                        <FormControl><Input type="password" {...field} /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <DialogFooter className="pt-2">
+                                <DialogClose asChild><Button type="button" variant="outline" disabled={isChangingPassword}>Cancel</Button></DialogClose>
+                                <Button type="submit" disabled={isChangingPassword}>
+                                    {isChangingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4"/>}
+                                    Save New Password
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+
+            <div className="border-t pt-4 mt-4">
+                <h3 className="text-md font-semibold mb-2 text-destructive">Danger Zone</h3>
+                 {/* Delete Account Section */}
+                <Dialog open={isDeleteAccountReAuthOpen} onOpenChange={setIsDeleteAccountReAuthOpen}>
+                    <DialogTrigger asChild>
+                        <Button variant="destructive">
+                            <Trash2 className="mr-2 h-4 w-4"/> Delete Account
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle className="text-destructive flex items-center"><ShieldAlert className="mr-2 h-5 w-5"/>Confirm Your Identity</DialogTitle>
+                            <DialogDescription>
+                                To delete your account, please enter your current password to confirm it&apos;s you.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Form {...reAuthForm}>
+                            <form onSubmit={reAuthForm.handleSubmit(onDeleteAccountReAuthSubmit)} className="space-y-4 py-2">
+                                <FormField
+                                    control={reAuthForm.control}
+                                    name="password"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Current Password</FormLabel>
+                                            <FormControl><Input type="password" {...field} /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <DialogFooter className="pt-2">
+                                     <DialogClose asChild><Button type="button" variant="outline" disabled={isDeletingAccount}>Cancel</Button></DialogClose>
+                                    <Button type="submit" variant="destructive" disabled={isDeletingAccount}>
+                                        {isDeletingAccount ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <KeyRound className="mr-2 h-4 w-4"/>}
+                                        Confirm Identity
+                                    </Button>
+                                </DialogFooter>
+                            </form>
+                        </Form>
+                    </DialogContent>
+                </Dialog>
+
+                <AlertDialog open={isDeleteAccountConfirmOpen} onOpenChange={setIsDeleteAccountConfirmOpen}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle className="text-destructive flex items-center"><ShieldAlert className="mr-2 h-5 w-5"/>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete your account and all associated data from Firebase Authentication.
+                                <br/><br/>
+                                <strong className="font-semibold">Important:</strong> Your data in Firestore (expenses, groups, etc.) will <strong className="text-destructive">NOT</strong> be automatically deleted by this action. For complete data removal, please contact support (this would typically be handled by backend cleanup functions not implemented in this demo).
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setIsDeletingAccount(false)} disabled={isDeletingAccount}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction 
+                                onClick={confirmDeleteAccount} 
+                                disabled={isDeletingAccount}
+                                className="bg-destructive hover:bg-destructive/90"
+                            >
+                                {isDeletingAccount ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4"/>}
+                                Yes, delete my account
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+                <p className="text-xs text-muted-foreground mt-2">
+                    Deleting your account is irreversible. Please be certain.
+                </p>
+            </div>
+
         </CardContent>
       </Card>
     </div>
   );
 }
-```
