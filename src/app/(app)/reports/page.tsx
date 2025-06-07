@@ -211,7 +211,7 @@ export default function ReportsPage() {
     }
   };
 
-  const escapeCSVField = (field: string | number | undefined | null): string => {
+  const escapeCSVField = (field: string | number | boolean | undefined | null): string => {
     if (field === undefined || field === null) {
       return "";
     }
@@ -228,7 +228,17 @@ export default function ReportsPage() {
       return;
     }
 
-    const headers = ["Date", "Description", "Category", "Amount", "Notes", "Group Name"];
+    const headers = [
+        "Date", 
+        "Description", 
+        "Category", 
+        "Amount", 
+        "Notes", 
+        "Group Name",
+        "Is Recurring",
+        "Recurrence Frequency",
+        "Recurrence End Date"
+    ];
     const csvRows = [
       headers.join(','), 
       ...filteredExpenses.map(expense => {
@@ -238,7 +248,10 @@ export default function ReportsPage() {
           escapeCSVField(expense.category),
           expense.amount, 
           escapeCSVField(expense.notes),
-          escapeCSVField(expense.groupName)
+          escapeCSVField(expense.groupName),
+          escapeCSVField(expense.isRecurring),
+          escapeCSVField(expense.recurrence),
+          escapeCSVField(expense.recurrenceEndDate),
         ];
         return row.join(',');
       })
@@ -508,3 +521,5 @@ export default function ReportsPage() {
   );
 }
 
+
+    
