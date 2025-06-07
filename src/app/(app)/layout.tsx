@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation'; // Added usePathname
+import { useRouter, usePathname } from 'next/navigation'; 
 import { useAuth } from '@/hooks/useAuth';
 import { AppLogo } from '@/components/core/AppLogo';
 import { UserNav } from '@/components/core/UserNav';
@@ -21,6 +21,9 @@ import {
   Loader2,
   PlusCircle,
   Split,
+  FileText, // For reports
+  ListChecks, // For reminders
+  UserCog, // For friends/sharing
 } from 'lucide-react';
 import {
   SidebarProvider,
@@ -37,39 +40,38 @@ const navItems: NavItem[] = [
   { title: 'Expenses', href: '/expenses', icon: CircleDollarSign, submenu: [
       { title: 'View Expenses', href: '/expenses', icon: CircleDollarSign },
       { title: 'Add Expense', href: '/expenses/add', icon: PlusCircle },
-      { title: 'Scan Receipt (OCR)', href: '/expenses/scan', icon: ScanLine }, // Enabled
+      { title: 'Scan Receipt (OCR)', href: '/expenses/scan', icon: ScanLine },
     ] 
   },
-  { title: 'Split Expenses', href: '/split', icon: Split, disabled: true },
-  { title: 'Groups', href: '/groups', icon: Users, disabled: true },
-  { title: 'Friends', href: '/friends', icon: UserPlus, disabled: true },
-  { title: 'Reports', href: '/reports', icon: BarChart3, disabled: true },
-  { title: 'Reminders', href: '/reminders', icon: BellRing, disabled: true },
+  { title: 'Split Expenses', href: '/split', icon: Split },
+  { title: 'Groups', href: '/groups', icon: Users },
+  { title: 'Friends', href: '/friends', icon: UserPlus },
+  { title: 'Reports', href: '/reports', icon: FileText },
+  { title: 'Reminders', href: '/reminders', icon: ListChecks },
   { title: 'Settings', href: '/settings', icon: Settings, separator: true },
 ];
 
-// Helper function to get page title from navItems
 const getPageTitle = (pathname: string, items: NavItem[]): string => {
   for (const item of items) {
     if (item.href === pathname) return item.title;
     if (item.submenu) {
       for (const subItem of item.submenu) {
-        if (subItem.href === pathname) return subItem.title;
+        if (subItem.href === pathname) return item.title; // Return parent title for submenus
       }
     }
   }
-  // Fallback for dynamic routes or non-nav pages
   if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
   if (pathname.startsWith('/expenses/view/')) return 'View Expense';
-  return 'ExpenseFlow'; // Default title
+  if (pathname === '/expenses/scan') return 'Scan Receipt';
+  return 'ExpenseFlow'; 
 };
 
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const pathname = usePathname(); // Get current path
-  const [sidebarOpen, setSidebarOpen] = React.useState(true); // Default to open on desktop
+  const pathname = usePathname(); 
+  const [sidebarOpen, setSidebarOpen] = React.useState(true); 
   const [pageTitle, setPageTitle] = React.useState('ExpenseFlow');
 
   useEffect(() => {
