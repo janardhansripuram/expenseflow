@@ -23,7 +23,8 @@ import {
   Split,
   FileText, 
   ListChecks, 
-  UserCog, 
+  UserCog,
+  Landmark, 
 } from 'lucide-react';
 import {
   SidebarProvider,
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
   { title: 'Split Expenses', href: '/split', icon: Split },
   { title: 'Groups', href: '/groups', icon: Users },
   { title: 'Friends', href: '/friends', icon: UserPlus },
+  { title: 'Debts', href: '/debts', icon: Landmark },
   { title: 'Reports', href: '/reports', icon: FileText },
   { title: 'Reminders', href: '/reminders', icon: ListChecks },
   { title: 'Settings', href: '/settings', icon: Settings, separator: true },
@@ -72,6 +74,7 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
   if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
   if (pathname === '/expenses/scan') return 'Scan Receipt';
   if (pathname.startsWith('/split/edit/')) return 'Edit Split';
+  if (pathname === '/debts') return 'Debts';
 
 
   const defaultTitle = items.find(item => item.href === '/dashboard')?.title || 'ExpenseFlow';
