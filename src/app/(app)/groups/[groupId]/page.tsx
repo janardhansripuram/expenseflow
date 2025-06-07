@@ -36,11 +36,11 @@ import {
   DialogFooter,
   DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown } from "lucide-react";
+import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId } from "@/lib/firebase/firestore";
-import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance } from "@/lib/types";
+import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement } from "@/lib/firebase/firestore";
+import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance, SplitParticipant } from "@/lib/types";
 import Image from "next/image";
 import { format } from "date-fns";
 import { GroupExpenseSplitDialog } from "@/components/groups/GroupExpenseSplitDialog";
@@ -79,6 +79,8 @@ export default function GroupDetailsPage() {
 
   const [isEditGroupNameDialogOpen, setIsEditGroupNameDialogOpen] = useState(false);
   const [isSavingGroupName, setIsSavingGroupName] = useState(false);
+  const [isProcessingSettlement, setIsProcessingSettlement] = useState<string | null>(null); // splitId-participantId
+
 
   const groupNameForm = useForm<GroupNameFormData>({
     resolver: zodResolver(groupNameSchema),
@@ -94,8 +96,6 @@ export default function GroupDetailsPage() {
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
     } else {
-        // Selective loading, usually for non-critical refreshes
-        // For now, a simple refresh of expenses and splits is enough
         setIsLoadingExpenses(true);
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
@@ -109,7 +109,7 @@ export default function GroupDetailsPage() {
       let friendsPromise = Promise.resolve(friends);
       let profilePromise = Promise.resolve(currentUserProfile);
 
-      if (refreshAll || !friends.length || !currentUserProfile) {
+      if (refreshAll || friends.length === 0 || !currentUserProfile) {
         friendsPromise = getFriends(user.uid);
         profilePromise = getUserProfile(user.uid);
       }
@@ -131,7 +131,7 @@ export default function GroupDetailsPage() {
       
       setGroup(groupData);
       groupNameForm.setValue("name", groupData.name);
-      setFriends(fetchedFriends || friends); // Use fetched if new, else existing
+      setFriends(fetchedFriends || friends);
       setCurrentUserProfile(fetchedProfile || currentUserProfile);
       setGroupExpenses(expensesForGroup);
       setSplitExpensesForGroup(groupSplits);
@@ -152,7 +152,6 @@ export default function GroupDetailsPage() {
   }, [fetchGroupData]);
 
 
-  // Calculate balances whenever group, groupExpenses, or splitExpensesForGroup change
   useEffect(() => {
     if (!group || isLoadingExpenses || isLoadingSplits) {
       setIsLoadingBalances(true);
@@ -166,17 +165,14 @@ export default function GroupDetailsPage() {
       balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
     });
 
-    // Process direct group expenses (user who paid gets credit)
     groupExpenses.forEach(expense => {
       if (balances[expense.userId]) {
         balances[expense.userId].paidForGroup += expense.amount;
       }
     });
 
-    // Process formal group splits
     splitExpensesForGroup.forEach(split => {
       if (balances[split.paidBy]) {
-        // The payer fronted the total amount for this split transaction
         balances[split.paidBy].paidForGroup += split.totalAmount;
       }
       split.participants.forEach(participant => {
@@ -199,12 +195,11 @@ export default function GroupDetailsPage() {
         owesToOthersInGroup: owed,
         netBalance: paid - owed,
       };
-    }).sort((a,b) => b.netBalance - a.netBalance); // Sort by net balance, highest creditor first
+    }).sort((a,b) => b.netBalance - a.netBalance); 
 
     setGroupMemberBalances(finalBalances);
     setIsLoadingBalances(false);
   }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits]);
-
 
 
   const handleToggleFriendSelection = (friendId: string) => {
@@ -301,6 +296,21 @@ export default function GroupDetailsPage() {
     }
   };
 
+  const handleSettleSplitParticipant = async (splitId: string, participantUserId: string) => {
+    if (!splitId) return;
+    setIsProcessingSettlement(`${splitId}-${participantUserId}`);
+    try {
+        await updateSplitParticipantSettlement(splitId, participantUserId, true);
+        toast({ title: "Settlement Updated", description: "Participant marked as settled."});
+        fetchGroupData(false); // Refresh splits and balances
+    } catch (error) {
+        console.error("Error settling participant:", error);
+        toast({ variant: "destructive", title: "Update Failed", description: "Could not update settlement status."});
+    } finally {
+        setIsProcessingSettlement(null);
+    }
+  };
+
 
   const getInitials = (name?: string, email?: string) => {
     if (name) {
@@ -341,6 +351,9 @@ export default function GroupDetailsPage() {
   }
   
   const isCurrentUserCreator = user?.uid === group.createdBy;
+  const outstandingSplits = splitExpensesForGroup.filter(split => 
+    split.participants.some(p => p.userId !== split.paidBy && !p.isSettled)
+  );
 
   return (
     <div className="space-y-6">
@@ -560,7 +573,7 @@ export default function GroupDetailsPage() {
                             <p className="ml-2">Loading expenses...</p>
                         </div>
                     ) : groupExpenses.length > 0 ? (
-                        <ScrollArea className="h-[200px] md:h-[300px]">
+                        <ScrollArea className="h-[200px] md:h-[240px]">
                         <div className="space-y-3 pr-2">
                             {groupExpenses.map(expense => (
                                 <Card key={expense.id} className="shadow-sm">
@@ -620,7 +633,7 @@ export default function GroupDetailsPage() {
                             <p className="ml-2">Loading balances...</p>
                         </div>
                     ) : groupMemberBalances.length > 0 ? (
-                        <ScrollArea className="h-[250px] md:h-[300px]">
+                        <ScrollArea className="h-[200px] md:h-[240px]">
                             <div className="space-y-3 pr-2">
                                 {groupMemberBalances.map(memberBalance => (
                                     <Card key={memberBalance.uid} className="shadow-sm">
@@ -655,6 +668,84 @@ export default function GroupDetailsPage() {
                     </p>
                 </CardContent>
             </Card>
+
+             <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center"><Handshake className="mr-2 h-5 w-5 text-primary"/>Manage Split Settlements</CardTitle>
+                    <CardDescription>Settle outstanding shares from group splits.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {isLoadingSplits ? (
+                        <div className="flex items-center justify-center py-10">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <p className="ml-2">Loading splits...</p>
+                        </div>
+                    ) : outstandingSplits.length > 0 ? (
+                        <ScrollArea className="h-[250px] md:h-[300px]">
+                            <div className="space-y-4 pr-2">
+                                {outstandingSplits.map(split => {
+                                    const payerOfThisSplit = group.memberDetails.find(m => m.uid === split.paidBy);
+                                    return (
+                                        <Card key={split.id} className="shadow-sm">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-md">{split.originalExpenseDescription}</CardTitle>
+                                                <CardDescription>
+                                                    Total: {formatCurrency(split.totalAmount)} | Paid by: {payerOfThisSplit?.displayName || payerOfThisSplit?.email || "Unknown"}
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="space-y-2">
+                                                {split.participants
+                                                    .filter(p => p.userId !== split.paidBy && !p.isSettled)
+                                                    .map(participant => {
+                                                        const participantDetail = group.memberDetails.find(m => m.uid === participant.userId);
+                                                        return (
+                                                            <div key={participant.userId} className="flex items-center justify-between p-2 bg-muted/30 rounded-md">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Avatar className="h-7 w-7">
+                                                                        <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(participantDetail?.displayName, participantDetail?.email)}`} alt={participantDetail?.displayName || participantDetail?.email} data-ai-hint="person avatar" />
+                                                                        <AvatarFallback>{getInitials(participantDetail?.displayName, participantDetail?.email)}</AvatarFallback>
+                                                                    </Avatar>
+                                                                    <div>
+                                                                        <p className="text-sm font-medium">{participantDetail?.displayName || participantDetail?.email}</p>
+                                                                        <p className="text-xs text-red-600">Owes: {formatCurrency(participant.amountOwed)}</p>
+                                                                    </div>
+                                                                </div>
+                                                                {currentUserProfile?.uid === split.paidBy && (
+                                                                    <AlertDialog>
+                                                                        <AlertDialogTrigger asChild>
+                                                                            <Button variant="outline" size="sm" className="text-xs" disabled={isProcessingSettlement === `${split.id}-${participant.userId}`}>
+                                                                                {isProcessingSettlement === `${split.id}-${participant.userId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckSquare className="mr-1.5 h-3 w-3"/>}
+                                                                                Mark Settled
+                                                                            </Button>
+                                                                        </AlertDialogTrigger>
+                                                                        <AlertDialogContent>
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>Confirm Settlement</AlertDialogTitle>
+                                                                                <AlertDialogDescription>
+                                                                                    Are you sure you want to mark {participantDetail?.displayName || participantDetail?.email} as settled for their share of {formatCurrency(participant.amountOwed)} for the expense &quot;{split.originalExpenseDescription}&quot;?
+                                                                                </AlertDialogDescription>
+                                                                            </AlertDialogHeader>
+                                                                            <AlertDialogFooter>
+                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                                <AlertDialogAction onClick={() => split.id && handleSettleSplitParticipant(split.id, participant.userId)}>Confirm</AlertDialogAction>
+                                                                            </AlertDialogFooter>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                })}
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })}
+                            </div>
+                        </ScrollArea>
+                    ) : (
+                        <p className="text-muted-foreground text-center py-6">All group splits are settled, or no splits have been made for this group yet.</p>
+                    )}
+                </CardContent>
+            </Card>
         </div>
       </div>
       
@@ -663,7 +754,7 @@ export default function GroupDetailsPage() {
           isOpen={isSplitExpenseDialogOpen}
           onOpenChange={(isOpen) => {
             setIsSplitExpenseDialogOpen(isOpen);
-            if (!isOpen) fetchGroupData(false); // Refresh expenses and splits when dialog closes
+            if (!isOpen) fetchGroupData(false); 
           }}
           expenseToSplit={expenseToSplit}
           group={group}
