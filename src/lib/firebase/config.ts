@@ -4,15 +4,15 @@ import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore, enableIndexedDbPersistence, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyDY6sr6tYPvaBHhGO_WNK7R-pIkquUaFLI',
-  appId: '1:167426634176:android:5b524545df9b7413875825',
-  messagingSenderId: '167426634176',
-  projectId: 'expenseflow-8d811',
-  storageBucket: 'expenseflow-8d811.firebasestorage.app',
+  apiKey: 'AIzaSyDbGPToe9ip8Ozi0bYDFEdTPeVw27stKis',
+  appId: '1:471981177559:web:e50a964ed89d9c2396ce92',
+  messagingSenderId: '471981177559',
+  projectId: 'expenseflow-ykb45',
+  storageBucket: 'expenseflow-ykb45.firebasestorage.app',
   iosBundleId: 'com.oweme.app',
   iosClientId: 'YOUR_IOS_CLIENT_ID',
   androidClientId: 'AIzaSyDY6sr6tYPvaBHhGO_WNK7R-pIkquUaFLI',
-  authDomain: 'expenseflow-8d811.firebaseapp.com',
+  authDomain: 'expenseflow-ykb45.firebaseapp.com',
   measurementId: 'G-MEASUREMENT_ID'
 };
 
