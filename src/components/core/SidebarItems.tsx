@@ -65,7 +65,7 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
                     const isSubActive = pathname.startsWith(subItem.href);
                     return (
                       <SidebarMenuSubItem key={subItem.title}>
-                        <Link href={subItem.href} asChild>
+                        <Link href={subItem.href}>
                           <SidebarMenuSubButton
                             isActive={isSubActive}
                             onClick={onLinkClick}
@@ -86,7 +86,7 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
 
         return (
           <SidebarMenuItem key={item.title}>
-            <Link href={item.href} asChild>
+            <Link href={item.href}>
               <SidebarMenuButton
                 isActive={isActive}
                 onClick={onLinkClick}

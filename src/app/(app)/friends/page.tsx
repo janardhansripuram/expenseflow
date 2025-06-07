@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, MessageSquare, Trash2, UserCheck, UserX, Loader2, Send, Inbox } from "lucide-react";
+import { UserPlus, Mail, MessageSquare, Trash2, UserCheck, UserX, Loader2, Send, Inbox, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -53,7 +53,7 @@ export default function FriendsPage() {
     setIsLoadingFriends(true);
     setIsLoadingRequests(true);
     try {
-      const profile = await getUserProfile(user.uid); // Fetches UserProfile with string createdAt
+      const profile = await getUserProfile(user.uid); 
       setCurrentUserProfile(profile);
 
       const [userFriendsData, userRequestsData] = await Promise.all([
@@ -111,7 +111,6 @@ export default function FriendsPage() {
     if (!user || !currentUserProfile) return;
     setIsProcessingRequest(request.id);
 
-    // getUserProfile now returns UserProfile with string createdAt
     const fromUserProfile = await getUserProfile(request.fromUserId); 
     const toUserProfile = currentUserProfile; 
 
@@ -122,7 +121,6 @@ export default function FriendsPage() {
     }
 
     try {
-      // acceptFriendRequest internally handles Timestamps for Firestore
       await acceptFriendRequest(request.id, fromUserProfile, toUserProfile);
       toast({ title: "Friend Added", description: `You are now friends with ${request.fromUserDisplayName || request.fromUserEmail}.` });
       fetchInitialData(); 
@@ -337,3 +335,4 @@ export default function FriendsPage() {
     </div>
   );
 }
+
