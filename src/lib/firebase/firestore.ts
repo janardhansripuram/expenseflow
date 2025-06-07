@@ -1,13 +1,14 @@
 
 'use server';
 import { db } from './config';
-import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend } from '@/lib/types';
+import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail } from '@/lib/types';
 
 const EXPENSES_COLLECTION = 'expenses';
 const USERS_COLLECTION = 'users';
 const FRIEND_REQUESTS_COLLECTION = 'friendRequests';
 const FRIENDS_SUBCOLLECTION = 'friends';
+const GROUPS_COLLECTION = 'groups';
 
 
 // Expense Functions
@@ -234,7 +235,6 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
     return { success: true, message: "Friend request sent successfully." };
   } catch (error) {
     console.error("Error sending friend request: ", error);
-    // It's good practice to throw the error or return a more specific error message
     const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
     return { success: false, message: `Failed to send friend request: ${errorMessage}` };
   }
@@ -256,7 +256,7 @@ export async function getIncomingFriendRequests(userId: string): Promise<FriendR
   }
 }
 
-export async function acceptFriendRequest(requestId: string): Promise<void> {
+export async function acceptFriendRequest(requestId: string, fromUserProfile: UserProfile, toUserProfile: UserProfile): Promise<void> {
   const requestRef = doc(db, FRIEND_REQUESTS_COLLECTION, requestId);
   
   await runTransaction(db, async (transaction) => {
@@ -264,38 +264,28 @@ export async function acceptFriendRequest(requestId: string): Promise<void> {
     if (!requestSnap.exists()) {
       throw new Error("Friend request does not exist or has been already processed.");
     }
-    const requestData = requestSnap.data() as Omit<FriendRequest, 'id'>; // Omit id because it's from snap
+    const requestData = requestSnap.data() as Omit<FriendRequest, 'id'>;
     if (requestData.status !== 'pending') {
       throw new Error("Friend request is not pending.");
-    }
-
-    const fromUserId = requestData.fromUserId;
-    const toUserId = requestData.toUserId;
-
-    const fromUserProfile = await getUserProfile(fromUserId);
-    const toUserProfile = await getUserProfile(toUserId);
-
-    if (!fromUserProfile || !toUserProfile) {
-      throw new Error("One or both user profiles could not be found.");
     }
     
     const now = Timestamp.now();
 
     const friendDataForFromUser: Friend = {
-      uid: toUserId,
+      uid: toUserProfile.uid,
       email: toUserProfile.email,
       displayName: toUserProfile.displayName,
       addedAt: now,
     };
     const friendDataForToUser: Friend = {
-      uid: fromUserId,
+      uid: fromUserProfile.uid,
       email: fromUserProfile.email,
       displayName: fromUserProfile.displayName,
       addedAt: now,
     };
 
-    const fromUserFriendRef = doc(db, USERS_COLLECTION, fromUserId, FRIENDS_SUBCOLLECTION, toUserId);
-    const toUserFriendRef = doc(db, USERS_COLLECTION, toUserId, FRIENDS_SUBCOLLECTION, fromUserId);
+    const fromUserFriendRef = doc(db, USERS_COLLECTION, fromUserProfile.uid, FRIENDS_SUBCOLLECTION, toUserProfile.uid);
+    const toUserFriendRef = doc(db, USERS_COLLECTION, toUserProfile.uid, FRIENDS_SUBCOLLECTION, fromUserProfile.uid);
 
     transaction.set(fromUserFriendRef, friendDataForFromUser);
     transaction.set(toUserFriendRef, friendDataForToUser);
@@ -316,10 +306,11 @@ export async function rejectFriendRequest(requestId: string): Promise<void> {
 
 export async function getFriends(userId: string): Promise<Friend[]> {
   try {
+    if (!userId) return [];
     const friendsCollectionRef = collection(db, USERS_COLLECTION, userId, FRIENDS_SUBCOLLECTION);
-    const q = query(friendsCollectionRef, orderBy('addedAt', 'desc'));
+    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); // Order by displayName for easier selection
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Friend));
+    return querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), uid: docSnap.id } as Friend)); // uid is doc.id here
   } catch (error) {
     console.error("Error getting friends: ", error);
     throw error;
@@ -341,6 +332,140 @@ export async function removeFriend(currentUserId: string, friendUserId: string):
     throw error;
   }
 }
+
+// Group Management Functions
+export async function createGroup(
+  creatorProfile: UserProfile,
+  groupName: string,
+  initialMemberProfiles: UserProfile[] // Must include creatorProfile
+): Promise<string> {
+  try {
+    if (!groupName.trim()) throw new Error("Group name cannot be empty.");
+    if (!initialMemberProfiles.some(p => p.uid === creatorProfile.uid)) {
+      throw new Error("Creator must be part of the initial members.");
+    }
+
+    const memberIds = initialMemberProfiles.map(p => p.uid);
+    const memberDetails: GroupMemberDetail[] = initialMemberProfiles.map(p => ({
+      uid: p.uid,
+      email: p.email,
+      displayName: p.displayName || p.email.split('@')[0],
+    }));
+
+    const groupData = {
+      name: groupName,
+      createdBy: creatorProfile.uid,
+      createdAt: Timestamp.now(),
+      memberIds: memberIds,
+      memberDetails: memberDetails,
+    };
+
+    const groupRef = await addDoc(collection(db, GROUPS_COLLECTION), groupData);
+    return groupRef.id;
+  } catch (error) {
+    console.error("Error creating group: ", error);
+    throw error;
+  }
+}
+
+export async function getGroupsForUser(userId: string): Promise<Group[]> {
+  try {
+    if (!userId) return [];
+    const q = query(
+      collection(db, GROUPS_COLLECTION),
+      where('memberIds', 'array-contains', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Group));
+  } catch (error) {
+    console.error("Error getting groups for user: ", error);
+    throw error;
+  }
+}
+
+export async function getGroupDetails(groupId: string): Promise<Group | null> {
+  try {
+    const groupRef = doc(db, GROUPS_COLLECTION, groupId);
+    const docSnap = await getDoc(groupRef);
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() } as Group;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error getting group details: ", error);
+    throw error;
+  }
+}
+
+export async function addMembersToGroup(groupId: string, newMemberProfiles: UserProfile[]): Promise<void> {
+  try {
+    if (newMemberProfiles.length === 0) return;
+    const groupRef = doc(db, GROUPS_COLLECTION, groupId);
+    
+    await runTransaction(db, async (transaction) => {
+      const groupSnap = await transaction.get(groupRef);
+      if (!groupSnap.exists()) throw new Error("Group not found.");
+      
+      const groupData = groupSnap.data() as Group;
+      const existingMemberIds = new Set(groupData.memberIds);
+      
+      const membersToAddDetails: GroupMemberDetail[] = [];
+      const memberIdsToAdd: string[] = [];
+
+      newMemberProfiles.forEach(profile => {
+        if (!existingMemberIds.has(profile.uid)) {
+          memberIdsToAdd.push(profile.uid);
+          membersToAddDetails.push({
+            uid: profile.uid,
+            email: profile.email,
+            displayName: profile.displayName || profile.email.split('@')[0]
+          });
+        }
+      });
+
+      if (memberIdsToAdd.length > 0) {
+        transaction.update(groupRef, {
+          memberIds: arrayUnion(...memberIdsToAdd),
+          memberDetails: arrayUnion(...membersToAddDetails)
+        });
+      }
+    });
+  } catch (error) {
+    console.error("Error adding members to group:", error);
+    throw error;
+  }
+}
+
+export async function removeMemberFromGroup(groupId: string, memberIdToRemove: string): Promise<void> {
+   try {
+    const groupRef = doc(db, GROUPS_COLLECTION, groupId);
+    
+    await runTransaction(db, async (transaction) => {
+      const groupSnap = await transaction.get(groupRef);
+      if (!groupSnap.exists()) throw new Error("Group not found.");
+
+      const groupData = groupSnap.data() as Group;
+      const memberDetailToRemove = groupData.memberDetails.find(m => m.uid === memberIdToRemove);
+
+      if (!memberDetailToRemove) throw new Error("Member not found in group's detail list.");
+
+      // If the group has only one member and that member is being removed, delete the group.
+      if (groupData.memberIds.length === 1 && groupData.memberIds.includes(memberIdToRemove)) {
+        transaction.delete(groupRef);
+      } else {
+        transaction.update(groupRef, {
+          memberIds: arrayRemove(memberIdToRemove),
+          memberDetails: arrayRemove(memberDetailToRemove)
+        });
+      }
+    });
+  } catch (error) {
+    console.error("Error removing member from group:", error);
+    throw error;
+  }
+}
+
 
 // Helper function for setting document with merge option (useful for createUserProfile if we want to update)
 import { setDoc } from 'firebase/firestore';

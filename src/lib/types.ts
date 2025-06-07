@@ -57,3 +57,19 @@ export interface Friend {
   displayName?: string; // Denormalized
   addedAt: Timestamp;
 }
+
+export interface GroupMemberDetail {
+  uid: string;
+  email: string;
+  displayName?: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  createdBy: string; // UID of the creator
+  createdAt: Timestamp;
+  memberIds: string[]; // Array of UIDs of members
+  memberDetails: GroupMemberDetail[]; // Denormalized for display
+  // Future: lastActivityAt, groupPhotoUrl, etc.
+}
