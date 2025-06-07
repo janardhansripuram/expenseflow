@@ -39,7 +39,7 @@ import {
 import { Loader2, ArrowLeft, UserPlus, Users, Trash2, ShieldAlert, Edit, CircleDollarSign, List, Split, Edit2, Scale, TrendingUp, TrendingDown, Handshake, CheckSquare, Save, ArrowRight, Landmark, History, ReceiptText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement, logGroupActivity, getGroupActivityLog } from "@/lib/firebase/firestore";
+import { getGroupDetails, getFriends, addMembersToGroup, removeMemberFromGroup, getUserProfile, getExpensesByGroupId, updateGroupDetails, getSplitExpensesByGroupId, updateSplitParticipantSettlement, logGroupActivity, getGroupActivityLog, ActivityActionType } from "@/lib/firebase/firestore";
 import type { Group, Friend, UserProfile, GroupMemberDetail, Expense, SplitExpense, GroupMemberBalance, SplitParticipant, GroupActivityLogEntry } from "@/lib/types";
 import Image from "next/image";
 import { format, formatDistanceToNow } from "date-fns";
@@ -158,7 +158,7 @@ export default function GroupDetailsPage() {
 
     } catch (error) {
       console.error("Failed to fetch group details:", error);
-      toast({ variant: "destructive", title: "Error", description: "Could not load group details or expenses." });
+      toast({ variant: "destructive", title: "Error Loading Group", description: "Could not load group details, expenses, or activity. Please try again." });
     } finally {
       if (refreshAll) setIsLoading(false);
       setIsLoadingExpenses(false);
@@ -305,7 +305,7 @@ export default function GroupDetailsPage() {
       setIsAddMembersDialogOpen(false);
       fetchGroupData(true); 
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Failed to Add Members", description: error.message || "Could not add members." });
+      toast({ variant: "destructive", title: "Failed to Add Members", description: error.message || "Could not add selected members to the group." });
     } finally {
       setIsProcessingMember(null);
     }
@@ -336,7 +336,7 @@ export default function GroupDetailsPage() {
         fetchGroupData(true); 
       }
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Failed to Remove Member", description: error.message || "Could not remove member." });
+      toast({ variant: "destructive", title: "Failed to Remove Member", description: error.message || "Could not process member removal or leave the group." });
     } finally {
       setIsProcessingMember(null);
     }
@@ -359,9 +359,9 @@ export default function GroupDetailsPage() {
       setGroup(prev => prev ? { ...prev, name: values.name } : null); 
       setIsEditGroupNameDialogOpen(false);
       fetchGroupData(false); 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating group name:", error);
-      toast({ variant: "destructive", title: "Update Failed", description: "Could not update group name." });
+      toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update the group name." });
     } finally {
       setIsSavingGroupName(false);
     }
@@ -380,7 +380,7 @@ export default function GroupDetailsPage() {
         fetchGroupData(false); 
     } catch (error: any) {
         console.error("Error settling participant:", error);
-        toast({ variant: "destructive", title: "Update Failed", description: "Could not update settlement status."});
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update the settlement status for the participant."});
     } finally {
         setIsProcessingSettlement(null);
     }
