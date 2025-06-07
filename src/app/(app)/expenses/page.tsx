@@ -38,6 +38,8 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from "date-fns";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
+
 
 interface FilterCriteria {
   searchTerm: string;
@@ -108,13 +110,21 @@ export default function ExpensesPage() {
         const currencies = Array.from(new Set(userExpenses.map(exp => exp.currency))).sort() as CurrencyCode[];
         setUniqueCurrencies(currencies);
         
-      } catch (error) {
-        console.error("Failed to fetch initial data:", error);
+      } catch (error: any) {
+        console.error("Failed to fetch initial data for expenses page:", error);
+        let description = "Could not load expenses or groups. Please try again.";
+        if (error.code === 'permission-denied') {
+          description = "You don't have permission to access this data. Please check Firestore rules.";
+        } else if (error.code === 'unavailable') {
+          description = "The service is currently unavailable. Please try again later.";
+        }
         toast({
           variant: "destructive",
           title: "Error Loading Data",
-          description: "Could not load expenses or groups. Please try again.",
+          description: description,
         });
+        setAllExpenses([]); // Ensure it's empty on error
+        setUserGroups([]); // Ensure it's empty on error
       } finally {
         setIsLoading(false);
       }
@@ -203,6 +213,7 @@ export default function ExpensesPage() {
   }, [allExpenses, currentFilters, currentSort]);
 
   const handleDelete = useCallback(async (expenseId: string) => {
+    if (!expenseId) return;
     setIsDeleting(expenseId);
     try {
       await deleteExpense(expenseId);
@@ -224,6 +235,7 @@ export default function ExpensesPage() {
   }, [toast, fetchInitialData]);
 
   const handleEdit = useCallback((expenseId: string) => {
+    if (!expenseId) return;
     router.push(`/expenses/edit/${expenseId}`);
   }, [router]);
 
@@ -241,7 +253,8 @@ export default function ExpensesPage() {
   }, []);
   
   const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
+     const currency = SUPPORTED_CURRENCIES.find(c => c.code === currencyCode);
+     return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
   };
 
   return (
@@ -282,7 +295,7 @@ export default function ExpensesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Any Currency</SelectItem>
-                      {uniqueCurrencies.map(curr => <SelectItem key={curr} value={curr}>{curr}</SelectItem>)}
+                      {uniqueCurrencies.map(curr => <SelectItem key={curr} value={curr}>{curr} - {SUPPORTED_CURRENCIES.find(c=>c.code === curr)?.name || ''}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

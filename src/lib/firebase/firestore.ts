@@ -103,26 +103,49 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
   }
 }
 
-function mapExpenseDocumentToExpenseObject(doc: any): Expense {
-  const data = doc.data();
-  return {
-    id: doc.id,
-    description: data.description,
-    amount: data.amount,
-    currency: data.currency || 'USD',
-    category: data.category,
-    date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-    notes: data.notes,
-    receiptUrl: data.receiptUrl,
-    groupId: data.groupId,
-    groupName: data.groupName,
-    createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-    userId: data.userId,
-    isRecurring: data.isRecurring || false,
-    recurrence: data.recurrence || 'none',
-    recurrenceEndDate: data.recurrenceEndDate ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] : undefined,
-    tags: data.tags || [],
-  };
+function mapExpenseDocumentToExpenseObject(docSnap: any): Expense | null {
+  const docId = docSnap.id;
+  try {
+    const data = docSnap.data();
+    if (!data) {
+      console.error(`Document ${docId} has no data.`);
+      return null;
+    }
+
+    // Validate essential timestamp fields
+    if (!data.date || typeof data.date.toDate !== 'function') {
+      console.error(`Document ${docId} has invalid or missing 'date' field:`, data.date);
+      return null;
+    }
+    if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
+      console.error(`Document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
+      return null;
+    }
+
+    return {
+      id: docId,
+      description: data.description || 'No description',
+      amount: typeof data.amount === 'number' ? data.amount : 0,
+      currency: data.currency || 'USD',
+      category: data.category || 'Other',
+      date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
+      notes: data.notes || '',
+      receiptUrl: data.receiptUrl || undefined,
+      groupId: data.groupId || undefined,
+      groupName: data.groupName || undefined,
+      createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+      userId: data.userId || 'Unknown User',
+      isRecurring: data.isRecurring || false,
+      recurrence: data.recurrence || 'none',
+      recurrenceEndDate: data.recurrenceEndDate && typeof data.recurrenceEndDate.toDate === 'function' 
+                         ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] 
+                         : undefined,
+      tags: Array.isArray(data.tags) ? data.tags : [],
+    };
+  } catch (error) {
+    console.error(`Error mapping expense document ${docId}:`, error, docSnap.data());
+    return null;
+  }
 }
 
 export async function getExpensesByUser(userId: string): Promise<Expense[]> {
@@ -134,7 +157,10 @@ export async function getExpensesByUser(userId: string): Promise<Expense[]> {
       orderBy('date', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
+    const expenses = querySnapshot.docs
+      .map(mapExpenseDocumentToExpenseObject)
+      .filter(expense => expense !== null) as Expense[]; // Filter out nulls from failed mappings
+    return expenses;
   } catch (error) {
     console.error("Error getting documents: ", error);
     throw error;
@@ -151,7 +177,10 @@ export async function getRecentExpensesByUser(userId: string, count: number = 5)
       limit(count)
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
+    const expenses = querySnapshot.docs
+      .map(mapExpenseDocumentToExpenseObject)
+      .filter(expense => expense !== null) as Expense[];
+    return expenses;
   } catch (error) {
     console.error("Error getting recent documents: ", error);
     throw error;
@@ -238,7 +267,10 @@ export async function getExpensesByGroupId(groupId: string): Promise<Expense[]> 
       orderBy('date', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(mapExpenseDocumentToExpenseObject);
+    const expenses = querySnapshot.docs
+      .map(mapExpenseDocumentToExpenseObject)
+      .filter(expense => expense !== null) as Expense[];
+    return expenses;
   } catch (error) {
     console.error("Error getting expenses by group ID: ", error);
     throw error;
@@ -267,19 +299,45 @@ export async function addIncome(userId: string, incomeData: IncomeFormData): Pro
   }
 }
 
-function mapIncomeDocumentToIncomeObject(doc: any): Income {
-  const data = doc.data();
-  return {
-    id: doc.id,
-    userId: data.userId,
-    source: data.source,
-    amount: data.amount,
-    currency: data.currency || 'USD',
-    date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
-    notes: data.notes,
-    createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-    updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate().toISOString() : undefined,
-  };
+function mapIncomeDocumentToIncomeObject(docSnap: any): Income | null {
+  const docId = docSnap.id;
+  try {
+    const data = docSnap.data();
+    if (!data) {
+      console.error(`Income document ${docId} has no data.`);
+      return null;
+    }
+
+    if (!data.date || typeof data.date.toDate !== 'function') {
+      console.error(`Income document ${docId} has invalid or missing 'date' field:`, data.date);
+      return null;
+    }
+    if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
+      console.error(`Income document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
+      return null;
+    }
+     if (data.updatedAt && typeof data.updatedAt.toDate !== 'function') {
+      console.warn(`Income document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
+      // Continue mapping, but updatedAt will be undefined
+    }
+
+    return {
+      id: docId,
+      userId: data.userId || 'Unknown User',
+      source: data.source || 'Unknown Source',
+      amount: typeof data.amount === 'number' ? data.amount : 0,
+      currency: data.currency || 'USD',
+      date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
+      notes: data.notes || '',
+      createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+      updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
+                 ? (data.updatedAt as Timestamp).toDate().toISOString() 
+                 : (data.createdAt as Timestamp).toDate().toISOString(), // Fallback to createdAt if updatedAt is invalid/missing
+    };
+  } catch (error) {
+     console.error(`Error mapping income document ${docId}:`, error, docSnap.data());
+    return null;
+  }
 }
 
 export async function getIncomeByUser(userId: string): Promise<Income[]> {
@@ -291,7 +349,9 @@ export async function getIncomeByUser(userId: string): Promise<Income[]> {
       orderBy('date', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(mapIncomeDocumentToIncomeObject);
+    return querySnapshot.docs
+      .map(mapIncomeDocumentToIncomeObject)
+      .filter(income => income !== null) as Income[];
   } catch (error) {
     console.error("Error getting income: ", error);
     throw error;
@@ -350,8 +410,8 @@ export async function createUserProfile(userId: string, email: string, displayNa
     await setDoc(userRef, {
       uid: userId,
       email: email.toLowerCase(),
-      displayName: displayName || email.split('@')[0],
-      defaultCurrency: 'USD', // Set default currency on creation
+      displayName: displayName || email.split('@')[0] || 'User',
+      defaultCurrency: 'USD', 
       createdAt: Timestamp.now(),
     });
   } catch (error) {
@@ -370,7 +430,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        defaultCurrency: data.defaultCurrency || 'USD', // Default to USD if not set
+        defaultCurrency: data.defaultCurrency || 'USD',
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
@@ -413,11 +473,6 @@ export async function updateUserProfile(userId: string, data: Partial<Pick<UserP
 
     if (Object.keys(allowedUpdates).length > 0) {
         await updateDoc(userRef, { ...allowedUpdates, updatedAt: Timestamp.now() });
-    } else {
-        // If only updatedAt is to be written, this prevents an empty update
-        // Firebase updateDoc with only updatedAt will work fine if the document exists
-        // This 'else' branch might not be strictly necessary unless we want to avoid even that.
-        // For now, if allowedUpdates is empty, we don't update, which is fine.
     }
   } catch (error) {
     console.error("Error updating user profile: ", error);
@@ -1252,21 +1307,41 @@ export async function addBudget(userId: string, budgetData: BudgetFormData): Pro
   }
 }
 
-function mapBudgetDocumentToBudgetObject(docSnap: any): Budget {
-    const data = docSnap.data();
-    return {
-        id: docSnap.id,
-        userId: data.userId,
-        name: data.name,
-        category: data.category,
-        amount: data.amount,
-        currency: data.currency || 'USD', // Default currency
-        period: data.period,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-        updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate().toISOString() : undefined,
-    };
+function mapBudgetDocumentToBudgetObject(docSnap: any): Budget | null {
+    const docId = docSnap.id;
+    try {
+        const data = docSnap.data();
+        if (!data) {
+            console.error(`Budget document ${docId} has no data.`);
+            return null;
+        }
+        if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
+            console.error(`Budget document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
+            return null;
+        }
+         if (data.updatedAt && typeof data.updatedAt.toDate !== 'function') {
+            console.warn(`Budget document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
+        }
+
+        return {
+            id: docId,
+            userId: data.userId || 'Unknown User',
+            name: data.name || 'Untitled Budget',
+            category: data.category || 'Other',
+            amount: typeof data.amount === 'number' ? data.amount : 0,
+            currency: data.currency || 'USD',
+            period: data.period || 'monthly',
+            startDate: data.startDate || formatISO(startOfMonth(new Date()), { representation: 'date' }),
+            endDate: data.endDate || formatISO(endOfMonth(new Date()), { representation: 'date' }),
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+            updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
+                        ? (data.updatedAt as Timestamp).toDate().toISOString() 
+                        : (data.createdAt as Timestamp).toDate().toISOString(),
+        };
+    } catch (error) {
+        console.error(`Error mapping budget document ${docId}:`, error, docSnap.data());
+        return null;
+    }
 }
 
 export async function getBudgetsByUser(userId: string): Promise<Budget[]> {
@@ -1278,7 +1353,9 @@ export async function getBudgetsByUser(userId: string): Promise<Budget[]> {
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(mapBudgetDocumentToBudgetObject);
+    return querySnapshot.docs
+        .map(mapBudgetDocumentToBudgetObject)
+        .filter(budget => budget !== null) as Budget[];
   } catch (error) {
     console.error("Error getting budgets by user: ", error);
     throw error;
@@ -1295,10 +1372,6 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
     if (budgetData.amount !== undefined) updatePayload.amount = parseFloat(budgetData.amount);
     if (budgetData.currency !== undefined) updatePayload.currency = budgetData.currency;
     
-    // Note: Period, startDate, endDate are not typically updated directly here
-    // If period changes, startDate/endDate logic might be more complex.
-    // For now, assuming only amount, name, category, and currency are primary editable fields.
-    // If budgetData.period is provided and is different, recalculate startDate/endDate
     if (budgetData.period !== undefined) {
         updatePayload.period = budgetData.period;
         const now = new Date();
@@ -1306,11 +1379,9 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
             updatePayload.startDate = formatISO(startOfMonth(now), { representation: 'date' });
             updatePayload.endDate = formatISO(endOfMonth(now), { representation: 'date' });
         }
-        // Add logic for other periods if implemented
     }
 
-
-    if (Object.keys(updatePayload).length > 1) { // More than just updatedAt
+    if (Object.keys(updatePayload).length > 1) { 
         await updateDoc(budgetRef, updatePayload);
     }
   } catch (error) {
@@ -1328,3 +1399,4 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
+
