@@ -11,11 +11,12 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { getExpensesByUser, getFriends, getUserProfile } from "@/lib/firebase/firestore";
-import type { Expense, Friend, UserProfile } from "@/lib/types";
+import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense } from "@/lib/firebase/firestore";
+import type { Expense, Friend, UserProfile, SplitExpense, SplitParticipant } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Timestamp } from "firebase/firestore";
 
 export default function SplitExpensesPage() {
   const { user } = useAuth();
@@ -26,6 +27,7 @@ export default function SplitExpensesPage() {
   
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingFriends, setIsLoadingFriends] = useState(true);
+  const [isSavingSplit, setIsSavingSplit] = useState(false);
   
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [selectedFriendsToSplit, setSelectedFriendsToSplit] = useState<Record<string, boolean>>({});
@@ -72,8 +74,7 @@ export default function SplitExpensesPage() {
   };
 
   const numberOfParticipants = useMemo(() => {
-    // Count selected friends + current user (payer)
-    return Object.values(selectedFriendsToSplit).filter(Boolean).length + 1;
+    return Object.values(selectedFriendsToSplit).filter(Boolean).length + 1; // +1 for the current user
   }, [selectedFriendsToSplit]);
 
   const amountPerPerson = useMemo(() => {
@@ -85,7 +86,7 @@ export default function SplitExpensesPage() {
 
   const handleSelectExpense = (expense: Expense) => {
     setSelectedExpense(expense);
-    setSelectedFriendsToSplit({}); // Reset friend selection
+    setSelectedFriendsToSplit({}); 
   };
 
   const handleClearSelection = () => {
@@ -100,23 +101,79 @@ export default function SplitExpensesPage() {
     }));
   };
 
-  const handleSaveSplit = () => {
-    // This is where you would implement saving the split details to Firestore.
-    // For now, just show a toast.
-    if (!selectedExpense || numberOfParticipants <= 1) {
+  const handleSaveSplit = async () => {
+    if (!selectedExpense || !user || !currentUserProfile || numberOfParticipants <= 0) {
         toast({
             variant: "destructive",
             title: "Cannot Save Split",
-            description: "Please select an expense and at least one friend to split with.",
+            description: "Please select an expense and ensure all participant details are available.",
         });
         return;
     }
-    toast({
-      title: "Saving Split (Coming Soon)",
-      description: `Expense "${selectedExpense.description}" split with ${numberOfParticipants -1} friend(s). Each owes ${formatCurrency(amountPerPerson)}.`,
+    if (numberOfParticipants === 1 && Object.values(selectedFriendsToSplit).filter(Boolean).length === 0) {
+        toast({
+            variant: "destructive",
+            title: "Cannot Save Split",
+            description: "Please select at least one friend to split the expense with.",
+        });
+        return;
+    }
+
+    setIsSavingSplit(true);
+
+    const participants: SplitParticipant[] = [];
+
+    // Add payer (current user)
+    participants.push({
+      userId: user.uid,
+      displayName: currentUserProfile.displayName || currentUserProfile.email,
+      email: currentUserProfile.email,
+      amountOwed: amountPerPerson,
+      isSettled: true, // Payer is always settled
     });
-    // Potentially clear selection or navigate away after "saving"
-    // handleClearSelection(); 
+
+    // Add selected friends
+    Object.entries(selectedFriendsToSplit).forEach(([friendId, isSelected]) => {
+      if (isSelected) {
+        const friendProfile = friends.find(f => f.uid === friendId);
+        if (friendProfile) {
+          participants.push({
+            userId: friendProfile.uid,
+            displayName: friendProfile.displayName || friendProfile.email,
+            email: friendProfile.email,
+            amountOwed: amountPerPerson,
+            isSettled: false,
+          });
+        }
+      }
+    });
+    
+    const splitData: Omit<SplitExpense, 'id' | 'createdAt'> = {
+        originalExpenseId: selectedExpense.id!,
+        splitType: "equally",
+        totalAmount: selectedExpense.amount,
+        paidBy: user.uid,
+        participants: participants,
+        notes: `Split of expense: ${selectedExpense.description}`,
+    };
+
+    try {
+        await createSplitExpense(splitData);
+        toast({
+          title: "Split Saved",
+          description: `Expense "${selectedExpense.description}" has been successfully split.`,
+        });
+        handleClearSelection();
+    } catch (error) {
+        console.error("Error saving split expense:", error);
+        toast({
+            variant: "destructive",
+            title: "Failed to Save Split",
+            description: "An error occurred while saving the split. Please try again.",
+        });
+    } finally {
+        setIsSavingSplit(false);
+    }
   };
   
   const getInitials = (name?: string, email?: string) => {
@@ -135,7 +192,7 @@ export default function SplitExpensesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Split Expenses</h1>
-        <p className="text-muted-foreground">Divide shared costs with your friends. Saving splits is coming soon!</p>
+        <p className="text-muted-foreground">Divide shared costs with your friends.</p>
       </div>
 
       {!selectedExpense ? (
@@ -257,15 +314,19 @@ export default function SplitExpensesPage() {
             </div>
             
             <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={handleClearSelection}>Cancel / Choose Other</Button>
-                <Button onClick={handleSaveSplit} disabled={isLoading || !selectedExpense}>
-                    <Save className="mr-2 h-4 w-4" /> Save Split (Coming Soon)
+                <Button variant="outline" onClick={handleClearSelection} disabled={isSavingSplit}>Cancel / Choose Other</Button>
+                <Button onClick={handleSaveSplit} disabled={isLoading || !selectedExpense || isSavingSplit || (Object.values(selectedFriendsToSplit).filter(Boolean).length === 0 && friends.length > 0) }>
+                    {isSavingSplit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save Split
                 </Button>
             </div>
 
+            {friends.length > 0 && Object.values(selectedFriendsToSplit).filter(Boolean).length === 0 && (
+                 <p className="text-xs text-destructive text-right mt-1">Please select at least one friend to save the split.</p>
+            )}
             <div className="pt-4 border-t">
                 <p className="text-xs text-muted-foreground">
-                    Note: This is a UI demonstration. Saving split details, selecting groups, custom split amounts, and tracking settlements will be implemented in future updates.
+                    Note: This feature allows splitting expenses equally. Future updates will include tracking settlements and more advanced split options.
                 </p>
             </div>
           </CardContent>
@@ -274,3 +335,6 @@ export default function SplitExpensesPage() {
     </div>
   );
 }
+
+
+    

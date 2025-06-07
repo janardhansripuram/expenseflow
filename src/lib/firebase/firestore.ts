@@ -2,13 +2,14 @@
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail } from '@/lib/types';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense } from '@/lib/types';
 
 const EXPENSES_COLLECTION = 'expenses';
 const USERS_COLLECTION = 'users';
 const FRIEND_REQUESTS_COLLECTION = 'friendRequests';
 const FRIENDS_SUBCOLLECTION = 'friends';
 const GROUPS_COLLECTION = 'groups';
+const SPLIT_EXPENSES_COLLECTION = 'splitExpenses';
 
 
 // Expense Functions
@@ -466,7 +467,28 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
   }
 }
 
+// Split Expense Functions
+export async function createSplitExpense(splitData: Omit<SplitExpense, 'id' | 'createdAt'>): Promise<string> {
+  try {
+    if (!splitData.paidBy) throw new Error("Payer ID (paidBy) is required.");
+    if (!splitData.originalExpenseId) throw new Error("Original expense ID is required.");
+    if (splitData.participants.length === 0) throw new Error("At least one participant is required.");
+
+    const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), {
+      ...splitData,
+      createdAt: Timestamp.now(),
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error creating split expense: ", error);
+    throw error;
+  }
+}
+
 
 // Helper function for setting document with merge option (useful for createUserProfile if we want to update)
 import { setDoc } from 'firebase/firestore';
 // Usage: await setDoc(userRef, data, { merge: true }); // if you want to merge with existing doc
+
+
+    
