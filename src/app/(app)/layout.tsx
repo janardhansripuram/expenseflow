@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation'; 
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { AppLogo } from '@/components/core/AppLogo';
 import { UserNav } from '@/components/core/UserNav';
@@ -21,10 +21,11 @@ import {
   Loader2,
   PlusCircle,
   Split,
-  FileText, 
-  ListChecks, 
+  FileText,
+  ListChecks,
   UserCog,
-  Landmark, 
+  Landmark,
+  Target, // Added Target icon for Budgets
 } from 'lucide-react';
 import {
   SidebarProvider,
@@ -42,8 +43,9 @@ const navItems: NavItem[] = [
       { title: 'View Expenses', href: '/expenses', icon: CircleDollarSign },
       { title: 'Add Expense', href: '/expenses/add', icon: PlusCircle },
       { title: 'Scan Receipt (OCR)', href: '/expenses/scan', icon: ScanLine },
-    ] 
+    ]
   },
+  { title: 'Budgets', href: '/budgets', icon: Target }, // Added Budgets Link
   { title: 'Split Expenses', href: '/split', icon: Split },
   { title: 'Groups', href: '/groups', icon: Users },
   { title: 'Friends', href: '/friends', icon: UserPlus },
@@ -55,19 +57,19 @@ const navItems: NavItem[] = [
 
 const getPageTitle = (pathname: string, items: NavItem[]): string => {
   for (const item of items) {
-    if (item.href === pathname && !item.submenu) return item.title; 
-    if (pathname.startsWith(item.href) && item.submenu) { 
+    if (item.href === pathname && !item.submenu) return item.title;
+    if (pathname.startsWith(item.href) && item.submenu) {
         for (const subItem of item.submenu) {
-            if (subItem.href === pathname) return item.title; 
+            if (subItem.href === pathname) return item.title;
         }
         if (item.href !== '/dashboard' && pathname.startsWith(item.href + '/')) {
-            if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense'; 
-            if (pathname.startsWith('/expenses/view/')) return 'View Expense'; 
+            if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense';
+            if (pathname.startsWith('/expenses/view/')) return 'View Expense';
             if (pathname.startsWith('/groups/') && pathname.split('/').length === 3 && pathname !== '/groups') return 'Group Details';
             if (pathname.startsWith('/split/edit/')) return 'Edit Split';
-            return item.title; 
+            return item.title;
         }
-        if (item.href === pathname) return item.title; 
+        if (item.href === pathname) return item.title;
     }
   }
   if (pathname.startsWith('/expenses/edit/')) return 'Edit Expense';
@@ -75,6 +77,7 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
   if (pathname === '/expenses/scan') return 'Scan Receipt';
   if (pathname.startsWith('/split/edit/')) return 'Edit Split';
   if (pathname === '/debts') return 'Debts';
+  if (pathname === '/budgets') return 'Budgets';
 
 
   const defaultTitle = items.find(item => item.href === '/dashboard')?.title || 'ExpenseFlow';
@@ -85,8 +88,8 @@ const getPageTitle = (pathname: string, items: NavItem[]): string => {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const pathname = usePathname(); 
-  const [sidebarOpen, setSidebarOpen] = React.useState(true); 
+  const pathname = usePathname();
+  const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [pageTitle, setPageTitle] = React.useState('ExpenseFlow');
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return null; 
+    return null;
   }
 
   return (
@@ -128,7 +131,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 backdrop-blur-sm px-4 md:px-6">
             <div className="flex items-center gap-4">
-              <SidebarTrigger className="md:hidden" /> 
+              <SidebarTrigger className="md:hidden" />
               <h1 className="text-lg font-semibold font-headline text-foreground md:text-xl">
                  {pageTitle}
               </h1>

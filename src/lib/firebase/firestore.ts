@@ -2,7 +2,8 @@
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry } from '@/lib/types';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry, Budget, BudgetFormData } from '@/lib/types';
+import { startOfMonth, endOfMonth, formatISO } from 'date-fns';
 
 const EXPENSES_COLLECTION = 'expenses';
 const USERS_COLLECTION = 'users';
@@ -12,6 +13,7 @@ const GROUPS_COLLECTION = 'groups';
 const SPLIT_EXPENSES_COLLECTION = 'splitExpenses';
 const REMINDERS_COLLECTION = 'reminders';
 const ACTIVITY_LOG_SUBCOLLECTION = 'activityLog';
+const BUDGETS_COLLECTION = 'budgets';
 
 
 // Activity Log Functions (Helper, not directly exported usually)
@@ -276,7 +278,7 @@ export async function createUserProfile(userId: string, email: string, displayNa
       uid: userId,
       email: email.toLowerCase(),
       displayName: displayName || email.split('@')[0],
-      createdAt: Timestamp.now(), 
+      createdAt: Timestamp.now(),
     });
   } catch (error) {
     console.error("Error creating user profile: ", error);
@@ -294,7 +296,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
     return null;
@@ -314,7 +316,7 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
     return null;
@@ -341,7 +343,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       return { success: false, message: "You cannot send a friend request to yourself." };
     }
 
-    const toUser = await getUserByEmail(toUserEmail); 
+    const toUser = await getUserByEmail(toUserEmail);
     if (!toUser) {
       return { success: false, message: "User with this email does not exist." };
     }
@@ -377,7 +379,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       toUserId,
       toUserEmail: toUser.email,
       status: 'pending',
-      createdAt: Timestamp.now(), 
+      createdAt: Timestamp.now(),
     });
     return { success: true, message: "Friend request sent successfully." };
   } catch (error) {
@@ -398,8 +400,8 @@ export async function getIncomingFriendRequests(userId: string): Promise<FriendR
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => {
         const data = doc.data();
-        return { 
-            id: doc.id, 
+        return {
+            id: doc.id,
             ...data,
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         } as FriendRequest
@@ -423,9 +425,9 @@ export async function acceptFriendRequest(requestId: string, fromUserProfile: Us
       throw new Error("Friend request is not pending.");
     }
 
-    const now = Timestamp.now(); 
+    const now = Timestamp.now();
 
-    const friendDataForFromUser: Omit<Friend, 'uid' | 'addedAt'> & {addedAt: Timestamp} = { 
+    const friendDataForFromUser: Omit<Friend, 'uid' | 'addedAt'> & {addedAt: Timestamp} = {
       email: toUserProfile.email,
       displayName: toUserProfile.displayName,
       addedAt: now,
@@ -460,12 +462,12 @@ export async function getFriends(userId: string): Promise<Friend[]> {
   try {
     if (!userId) return [];
     const friendsCollectionRef = collection(db, USERS_COLLECTION, userId, FRIENDS_SUBCOLLECTION);
-    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); 
+    const q = query(friendsCollectionRef, orderBy('displayName', 'asc'));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(docSnap => {
         const data = docSnap.data();
-        return { 
-            ...data, 
+        return {
+            ...data,
             uid: docSnap.id,
             addedAt: (data.addedAt as Timestamp).toDate().toISOString(),
         } as Friend
@@ -496,7 +498,7 @@ export async function removeFriend(currentUserId: string, friendUserId: string):
 export async function createGroup(
   creatorProfile: UserProfile,
   groupName: string,
-  initialMemberProfiles: UserProfile[] 
+  initialMemberProfiles: UserProfile[]
 ): Promise<string> {
   try {
     if (!groupName.trim()) throw new Error("Group name cannot be empty.");
@@ -514,13 +516,13 @@ export async function createGroup(
     const groupData = {
       name: groupName,
       createdBy: creatorProfile.uid,
-      createdAt: Timestamp.now(), 
+      createdAt: Timestamp.now(),
       memberIds: memberIds,
       memberDetails: memberDetails,
     };
 
     const groupRef = await addDoc(collection(db, GROUPS_COLLECTION), groupData);
-    
+
     await logGroupActivity(groupRef.id, {
       actorId: creatorProfile.uid,
       actorDisplayName: creatorProfile.displayName || creatorProfile.email,
@@ -557,8 +559,8 @@ export async function getGroupsForUser(userId: string): Promise<Group[]> {
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(docSnap => {
         const data = docSnap.data();
-        return { 
-            id: docSnap.id, 
+        return {
+            id: docSnap.id,
             ...data,
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         } as Group
@@ -575,8 +577,8 @@ export async function getGroupDetails(groupId: string): Promise<Group | null> {
     const docSnap = await getDoc(groupRef);
     if (docSnap.exists()) {
       const data = docSnap.data();
-      return { 
-          id: docSnap.id, 
+      return {
+          id: docSnap.id,
           ...data,
           createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as Group;
@@ -590,7 +592,7 @@ export async function getGroupDetails(groupId: string): Promise<Group | null> {
 
 export async function updateGroupDetails(
   groupId: string,
-  actorProfile: UserProfile, 
+  actorProfile: UserProfile,
   data: { name?: string }
 ): Promise<void> {
   try {
@@ -611,7 +613,7 @@ export async function updateGroupDetails(
       expensesSnapshot.forEach(expenseDoc => {
         batch.update(expenseDoc.ref, { groupName: data.name });
       });
-      
+
       await logGroupActivity(groupId, {
         actorId: actorProfile.uid,
         actorDisplayName: actorProfile.displayName || actorProfile.email,
@@ -630,8 +632,8 @@ export async function updateGroupDetails(
 
 export async function addMembersToGroup(
   groupId: string,
-  actorProfile: UserProfile, 
-  newMemberProfiles: UserProfile[] 
+  actorProfile: UserProfile,
+  newMemberProfiles: UserProfile[]
 ): Promise<void> {
   try {
     if (newMemberProfiles.length === 0) return;
@@ -683,9 +685,9 @@ export async function addMembersToGroup(
 
 export async function removeMemberFromGroup(
   groupId: string,
-  actorProfile: UserProfile, 
+  actorProfile: UserProfile,
   memberIdToRemove: string,
-  memberDisplayNameToRemove: string 
+  memberDisplayNameToRemove: string
 ): Promise<void> {
    try {
     const groupRef = doc(db, GROUPS_COLLECTION, groupId);
@@ -700,7 +702,7 @@ export async function removeMemberFromGroup(
       if (!memberDetailToRemove && groupData.memberIds.includes(memberIdToRemove)) {
          console.warn(`Member detail for UID ${memberIdToRemove} not found in group ${groupId}, but ID was in memberIds. Proceeding with ID removal.`);
       }
-      
+
       let isDeletingGroup = false;
       if (groupData.memberIds.length === 1 && groupData.memberIds.includes(memberIdToRemove)) {
         isDeletingGroup = true;
@@ -715,7 +717,7 @@ export async function removeMemberFromGroup(
         }
         transaction.update(groupRef, updatePayload);
       }
-      
+
       // Logging logic
       let actionType = ActivityActionType.MEMBER_REMOVED;
       let details = `${actorProfile.displayName || actorProfile.email} removed ${memberDisplayNameToRemove} from the group "${groupData.name}"`;
@@ -729,13 +731,13 @@ export async function removeMemberFromGroup(
         actionType = ActivityActionType.GROUP_DELETED;
         details = `Group "${groupData.name}" was deleted as the last member (${actorProfile.displayName || actorProfile.email}) left.`;
       }
-      
+
       await logGroupActivity(groupId, {
         actorId: actorProfile.uid,
         actorDisplayName: actorProfile.displayName || actorProfile.email,
         actionType: actionType,
         details: details,
-        relatedMemberId: memberIdToRemove, 
+        relatedMemberId: memberIdToRemove,
         relatedMemberName: memberDisplayNameToRemove,
       });
     });
@@ -754,9 +756,9 @@ type CreateSplitExpenseData = {
   paidBy: string;
   participants: SplitParticipant[];
   groupId?: string;
-  groupName?: string; 
+  groupName?: string;
   notes?: string;
-  actorProfile?: UserProfile; 
+  actorProfile?: UserProfile;
 };
 
 export async function createSplitExpense(splitData: CreateSplitExpenseData): Promise<string> {
@@ -811,8 +813,8 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
       involvedUserIds,
       groupId: splitData.groupId || undefined,
       notes: splitData.notes || '',
-      createdAt: Timestamp.now(), 
-      updatedAt: Timestamp.now(), 
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
     };
 
     const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), dataToSave);
@@ -848,8 +850,8 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
         return {
             id: docSnap.id,
             ...data,
-            createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
-            updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+            updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
     });
   } catch (error) {
@@ -867,8 +869,8 @@ export async function getSplitExpenseById(splitExpenseId: string): Promise<Split
       return {
         id: docSnap.id,
         ...data,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
-        updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+        updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
       } as SplitExpense;
     }
     return null;
@@ -892,8 +894,8 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
         return {
             id: docSnap.id,
             ...data,
-            createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
-            updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
+            createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+            updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
     });
   } catch (error) {
@@ -907,10 +909,10 @@ export async function updateSplitParticipantSettlement(
   participantUserId: string,
   newSettledStatus: boolean,
   // Optional parameters for group logging
-  groupId?: string, 
-  actorProfile?: UserProfile, 
-  participantDisplayName?: string, 
-  originalExpenseDescription?: string 
+  groupId?: string,
+  actorProfile?: UserProfile,
+  participantDisplayName?: string,
+  originalExpenseDescription?: string
 ): Promise<void> {
   const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
   try {
@@ -931,7 +933,7 @@ export async function updateSplitParticipantSettlement(
       if (groupId && actorProfile && participantDisplayName && originalExpenseDescription) {
         const settlementStatus = newSettledStatus ? "settled" : "unsettled";
         const targetDisplayName = participantUserId === actorProfile.uid ? "their share" : `${participantDisplayName}'s share`;
-        
+
         await logGroupActivity(groupId, {
           actorId: actorProfile.uid,
           actorDisplayName: actorProfile.displayName || actorProfile.email,
@@ -974,12 +976,12 @@ export async function updateSplitExpense(
 
     const newSplitMethod = data.splitMethod || existingSplitData.splitMethod;
     let newParticipants = data.participants || existingSplitData.participants;
-    const currentTotalAmount = existingSplitData.totalAmount; 
+    const currentTotalAmount = existingSplitData.totalAmount;
 
     if (data.participants && data.participants.length === 0) {
       throw new Error("Participants list cannot be empty.");
     }
-    
+
     if (data.splitMethod || data.participants) {
       if (newSplitMethod === 'byAmount') {
         const calculatedTotalOwed = newParticipants.reduce((sum, p) => sum + p.amountOwed, 0);
@@ -1011,7 +1013,7 @@ export async function updateSplitExpense(
         });
       }
     }
-    
+
     const updatePayload: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'updatedAt'>> & {updatedAt: Timestamp} = {
         splitMethod: newSplitMethod,
         participants: newParticipants,
@@ -1040,8 +1042,8 @@ export async function addReminder(userId: string, reminderData: ReminderFormData
       dueDate: Timestamp.fromDate(new Date(reminderData.dueDate)),
       recurrence: reminderData.recurrence,
       isCompleted: false,
-      createdAt: now, 
-      updatedAt: now, 
+      createdAt: now,
+      updatedAt: now,
     });
     return docRef.id;
   } catch (error) {
@@ -1070,8 +1072,8 @@ export async function getRemindersByUser(userId: string): Promise<Reminder[]> {
         dueDate: (data.dueDate as Timestamp).toDate().toISOString().split('T')[0],
         recurrence: data.recurrence as RecurrenceType,
         isCompleted: data.isCompleted,
-        createdAt: (data.createdAt as Timestamp).toDate().toISOString(), 
-        updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(), 
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+        updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
       });
     });
     return reminders;
@@ -1120,3 +1122,107 @@ export async function deleteReminder(reminderId: string): Promise<void> {
   }
 }
 
+// Budget Functions
+export async function addBudget(userId: string, budgetData: BudgetFormData): Promise<string> {
+  try {
+    if (!userId) throw new Error("User ID is required to add a budget.");
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
+
+    if (budgetData.period === "monthly") {
+      startDate = startOfMonth(now);
+      endDate = endOfMonth(now);
+    } else {
+      // Handle other periods if/when implemented
+      throw new Error("Unsupported budget period.");
+    }
+
+    const newBudget = {
+      userId,
+      name: budgetData.name,
+      category: budgetData.category,
+      amount: parseFloat(budgetData.amount),
+      period: budgetData.period,
+      startDate: formatISO(startDate, { representation: 'date' }),
+      endDate: formatISO(endDate, { representation: 'date' }),
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    };
+    const docRef = await addDoc(collection(db, BUDGETS_COLLECTION), newBudget);
+    return docRef.id;
+  } catch (error) {
+    console.error("Error adding budget: ", error);
+    throw error;
+  }
+}
+
+export async function getBudgetsByUser(userId: string): Promise<Budget[]> {
+  try {
+    if (!userId) return [];
+    const q = query(
+      collection(db, BUDGETS_COLLECTION),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    const budgets: Budget[] = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      budgets.push({
+        id: docSnap.id,
+        userId: data.userId,
+        name: data.name,
+        category: data.category,
+        amount: data.amount,
+        period: data.period,
+        startDate: data.startDate, // Already string
+        endDate: data.endDate,     // Already string
+        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+        updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate().toISOString() : undefined,
+      });
+    });
+    return budgets;
+  } catch (error) {
+    console.error("Error getting budgets by user: ", error);
+    throw error;
+  }
+}
+
+export async function updateBudget(budgetId: string, budgetData: Partial<BudgetFormData>): Promise<void> {
+  try {
+    const budgetRef = doc(db, BUDGETS_COLLECTION, budgetId);
+    const updatePayload: { [key: string]: any } = { updatedAt: Timestamp.now() };
+
+    if (budgetData.name !== undefined) updatePayload.name = budgetData.name;
+    if (budgetData.category !== undefined) updatePayload.category = budgetData.category;
+    if (budgetData.amount !== undefined) updatePayload.amount = parseFloat(budgetData.amount);
+    if (budgetData.period !== undefined) {
+        updatePayload.period = budgetData.period;
+        // If period changes, might need to recalculate startDate and endDate
+        // For now, assuming period doesn't change or UI handles this logic
+        const now = new Date();
+        if (budgetData.period === "monthly") {
+            updatePayload.startDate = formatISO(startOfMonth(now), { representation: 'date' });
+            updatePayload.endDate = formatISO(endOfMonth(now), { representation: 'date' });
+        }
+    }
+    
+    if (Object.keys(updatePayload).length > 1) { // More than just updatedAt
+        await updateDoc(budgetRef, updatePayload);
+    }
+  } catch (error) {
+    console.error("Error updating budget: ", error);
+    throw error;
+  }
+}
+
+export async function deleteBudget(budgetId: string): Promise<void> {
+  try {
+    const budgetRef = doc(db, BUDGETS_COLLECTION, budgetId);
+    await deleteDoc(budgetRef);
+  } catch (error) {
+    console.error("Error deleting budget: ", error);
+    throw error;
+  }
+}

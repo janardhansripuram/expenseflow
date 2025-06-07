@@ -21,7 +21,7 @@ export interface Expense {
   date: string; // Stored as YYYY-MM-DD string from form, converted to Firestore Timestamp on save
   notes?: string;
   receiptUrl?: string;
-  createdAt: string; 
+  createdAt: string;
   userId: string;
   groupId?: string; // ID of the group this expense belongs to
   groupName?: string; // Denormalized name of the group
@@ -43,7 +43,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
-  createdAt: string; 
+  createdAt: string;
 }
 
 export interface FriendRequest {
@@ -54,14 +54,14 @@ export interface FriendRequest {
   toUserId: string;
   toUserEmail: string;
   status: 'pending';
-  createdAt: string; 
+  createdAt: string;
 }
 
 export interface Friend {
   uid: string;
   email: string;
   displayName?: string;
-  addedAt: string; 
+  addedAt: string;
 }
 
 export interface GroupMemberDetail {
@@ -74,7 +74,7 @@ export interface Group {
   id: string;
   name: string;
   createdBy: string;
-  createdAt: string; 
+  createdAt: string;
   memberIds: string[];
   memberDetails: GroupMemberDetail[];
 }
@@ -100,8 +100,8 @@ export interface SplitExpense {
   participants: SplitParticipant[];
   involvedUserIds: string[];
   groupId?: string;
-  createdAt: string; 
-  updatedAt?: string; 
+  createdAt: string;
+  updatedAt?: string;
   notes?: string;
 }
 
@@ -115,8 +115,8 @@ export interface Reminder {
   dueDate: string; // This is already a string, used for yyyy-MM-dd
   recurrence: RecurrenceType;
   isCompleted: boolean;
-  createdAt: string; 
-  updatedAt: string; 
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type ReminderFormData = {
@@ -160,4 +160,25 @@ export interface GroupActivityLogEntry {
   relatedExpenseName?: string;
   previousValue?: string;
   newValue?: string;
+}
+
+export interface Budget {
+  id?: string;
+  userId: string;
+  name: string;
+  category: string; // "Overall" or a specific expense category
+  amount: number;
+  period: "monthly"; // Initially just monthly
+  startDate: string; // YYYY-MM-DD ISO string from Date
+  endDate: string; // YYYY-MM-DD ISO string from Date
+  createdAt: string; // ISO string from Timestamp
+  updatedAt?: string; // ISO string from Timestamp
+}
+
+export interface BudgetFormData {
+  name: string;
+  category: string;
+  amount: string; // Input as string, converted to number
+  period: "monthly";
+  // startDate and endDate will be calculated on save for now
 }
