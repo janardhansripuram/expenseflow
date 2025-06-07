@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Save, Users, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import type { Expense, Group, SplitParticipant, UserProfile } from "@/lib/types";
+import type { Expense, Group, SplitParticipant, UserProfile, SplitMethod } from "@/lib/types";
 import { createSplitExpense } from "@/lib/firebase/firestore";
 import { Timestamp } from "firebase/firestore";
 
@@ -50,6 +50,7 @@ export function GroupExpenseSplitDialog({
   const numberOfParticipants = group?.memberIds.length || 0;
   const amountPerPerson = useMemo(() => {
     if (expenseToSplit && numberOfParticipants > 0) {
+      // For now, assumes equal split for UI display
       return expenseToSplit.amount / numberOfParticipants;
     }
     return 0;
@@ -92,22 +93,26 @@ export function GroupExpenseSplitDialog({
 
     setIsSavingSplit(true);
 
+    // Current UI only supports equal splits for group expenses from this dialog
+    const currentSplitMethod: SplitMethod = 'equally';
+    const calculatedAmountPerPerson = expenseToSplit.amount / numberOfParticipants;
+
     const participants: SplitParticipant[] = group.memberDetails.map(member => ({
       userId: member.uid,
       displayName: member.displayName || member.email,
       email: member.email,
-      amountOwed: amountPerPerson,
+      amountOwed: calculatedAmountPerPerson,
       isSettled: member.uid === expenseToSplit.userId, // Payer is settled
     }));
-    
+
     const splitData = {
       originalExpenseId: expenseToSplit.id!,
       originalExpenseDescription: expenseToSplit.description,
-      splitType: "equally" as "equally",
+      splitMethod: currentSplitMethod,
       totalAmount: expenseToSplit.amount,
       paidBy: expenseToSplit.userId, // The user who originally paid for the group expense
       participants: participants,
-      groupId: group.id, // Explicitly add groupId
+      groupId: group.id,
       notes: `Split of group expense: "${expenseToSplit.description}" for group "${group.name}"`,
     };
 
@@ -118,12 +123,12 @@ export function GroupExpenseSplitDialog({
         description: `Expense "${expenseToSplit.description}" has been successfully split among group members.`,
       });
       onOpenChange(false); // Close dialog on success
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving group expense split:", error);
       toast({
         variant: "destructive",
         title: "Failed to Save Split",
-        description: "An error occurred while saving the split. Please try again.",
+        description: error.message || "An error occurred while saving the split. Please try again.",
       });
     } finally {
       setIsSavingSplit(false);
@@ -141,7 +146,7 @@ export function GroupExpenseSplitDialog({
             This expense will be split equally among all {group.memberIds.length} members of &quot;{group.name}&quot;.
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="space-y-4 py-4">
             <div>
                 <Label className="font-semibold">Total Amount:</Label>
@@ -180,8 +185,9 @@ export function GroupExpenseSplitDialog({
                 <div className="flex items-start">
                     <Info className="h-5 w-5 mr-2 mt-0.5 text-accent" />
                     <p className="text-xs">
-                        Each of the {numberOfParticipants} members will owe {formatCurrency(amountPerPerson)}. 
+                        Each of the {numberOfParticipants} members will owe {formatCurrency(amountPerPerson)}.
                         The payer, {payerProfile?.displayName || payerProfile?.email}, is considered settled.
+                        Non-equal split methods for group expenses will be available soon.
                     </p>
                 </div>
             </div>
@@ -199,7 +205,7 @@ export function GroupExpenseSplitDialog({
             ) : (
               <Save className="mr-2 h-4 w-4" />
             )}
-            Confirm & Save Split
+            Confirm & Save Equal Split
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse, CheckSquare, Handshake } from "lucide-react";
+import { Loader2, SplitIcon, ArrowLeft, Users, AlertCircle, UserCheck, Save, ListCollapse, CheckSquare, Handshake, Edit, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense, getSplitExpensesForUser, updateSplitParticipantSettlement } from "@/lib/firebase/firestore";
-import type { Expense, Friend, UserProfile, SplitExpense, SplitParticipant } from "@/lib/types";
+import { getExpensesByUser, getFriends, getUserProfile, createSplitExpense, getSplitExpensesForUser, updateSplitParticipantSettlement, deleteSplitExpense } from "@/lib/firebase/firestore";
+import type { Expense, Friend, UserProfile, SplitExpense, SplitParticipant, SplitMethod } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -36,12 +36,13 @@ export default function SplitExpensesPage() {
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
-  
+
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingFriends, setIsLoadingFriends] = useState(true);
   const [isSavingSplit, setIsSavingSplit] = useState(false);
   const [isProcessingSettlement, setIsProcessingSettlement] = useState<string | null>(null); // stores splitId-participantId
-  
+  const [isDeletingSplit, setIsDeletingSplit] = useState<string | null>(null); // stores splitId
+
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [selectedFriendsToSplit, setSelectedFriendsToSplit] = useState<Record<string, boolean>>({});
 
@@ -60,7 +61,7 @@ export default function SplitExpensesPage() {
           getUserProfile(user.uid),
           getSplitExpensesForUser(user.uid)
         ]);
-        setExpenses(userExpenses);
+        setExpenses(userExpenses.filter(exp => !exp.groupId)); // Only personal expenses for now
         setFriends(userFriends);
         setCurrentUserProfile(profile);
         setSavedSplits(userSplits);
@@ -101,14 +102,23 @@ export default function SplitExpensesPage() {
 
   const amountPerPerson = useMemo(() => {
     if (selectedExpense && numberOfParticipants > 0) {
+      // For now, still assumes equal split for UI display until non-equal split UI is built
       return selectedExpense.amount / numberOfParticipants;
     }
     return 0;
   }, [selectedExpense, numberOfParticipants]);
 
   const handleSelectExpense = (expense: Expense) => {
+    if (expense.groupId) {
+        toast({
+            title: "Group Expense",
+            description: "This expense belongs to a group. Please split it from the group's detail page for now.",
+            variant: "default"
+        });
+        return;
+    }
     setSelectedExpense(expense);
-    setSelectedFriendsToSplit({}); 
+    setSelectedFriendsToSplit({});
   };
 
   const handleClearSelection = () => {
@@ -143,13 +153,18 @@ export default function SplitExpensesPage() {
 
     setIsSavingSplit(true);
 
+    // Current UI only supports equal splits, so we construct participants accordingly.
+    // This will be enhanced when non-equal split UI is built.
+    const currentSplitMethod: SplitMethod = 'equally';
+    const calculatedAmountPerPerson = selectedExpense.amount / numberOfParticipants;
+
     const participants: SplitParticipant[] = [];
     participants.push({
       userId: user.uid,
       displayName: currentUserProfile.displayName || currentUserProfile.email,
       email: currentUserProfile.email,
-      amountOwed: amountPerPerson,
-      isSettled: true, 
+      amountOwed: calculatedAmountPerPerson,
+      isSettled: true, // Payer is always settled initially for their own "share"
     });
 
     Object.entries(selectedFriendsToSplit).forEach(([friendId, isSelected]) => {
@@ -160,17 +175,17 @@ export default function SplitExpensesPage() {
             userId: friendProfile.uid,
             displayName: friendProfile.displayName || friendProfile.email,
             email: friendProfile.email,
-            amountOwed: amountPerPerson,
+            amountOwed: calculatedAmountPerPerson,
             isSettled: false,
           });
         }
       }
     });
-    
+
     const splitData = {
         originalExpenseId: selectedExpense.id!,
         originalExpenseDescription: selectedExpense.description,
-        splitType: "equally" as "equally",
+        splitMethod: currentSplitMethod,
         totalAmount: selectedExpense.amount,
         paidBy: user.uid,
         participants: participants,
@@ -185,12 +200,12 @@ export default function SplitExpensesPage() {
         });
         handleClearSelection();
         fetchAllData(); // Refresh all data including saved splits
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error saving split expense:", error);
         toast({
             variant: "destructive",
             title: "Failed to Save Split",
-            description: "An error occurred while saving the split. Please try again.",
+            description: error.message || "An error occurred while saving the split. Please try again.",
         });
     } finally {
         setIsSavingSplit(false);
@@ -204,14 +219,29 @@ export default function SplitExpensesPage() {
         await updateSplitParticipantSettlement(splitId, participantUserId, true);
         toast({ title: "Settlement Updated", description: "Participant marked as settled."});
         fetchAllData(); // Refresh splits
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error settling participant:", error);
-        toast({ variant: "destructive", title: "Update Failed", description: "Could not update settlement status."});
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update settlement status."});
     } finally {
         setIsProcessingSettlement(null);
     }
   };
-  
+
+  const handleDeleteSplit = async (splitId: string) => {
+    if (!splitId) return;
+    setIsDeletingSplit(splitId);
+    try {
+        await deleteSplitExpense(splitId);
+        toast({ title: "Split Deleted", description: "The split expense record has been deleted." });
+        fetchAllData();
+    } catch (error: any) {
+        console.error("Error deleting split:", error);
+        toast({ variant: "destructive", title: "Delete Failed", description: error.message || "Could not delete the split record." });
+    } finally {
+        setIsDeletingSplit(null);
+    }
+  };
+
   const getInitials = (name?: string, email?: string) => {
     if (name) {
       const parts = name.split(' ');
@@ -221,7 +251,7 @@ export default function SplitExpensesPage() {
     if (email) return email.substring(0,2).toUpperCase();
     return '??';
   }
-  
+
   const getPayerDisplayName = (split: SplitExpense): string => {
     const payer = split.participants.find(p => p.userId === split.paidBy);
     if (payer?.userId === currentUserProfile?.uid) return "You";
@@ -234,7 +264,7 @@ export default function SplitExpensesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Split Expenses</h1>
-        <p className="text-muted-foreground">Divide shared costs with your friends.</p>
+        <p className="text-muted-foreground">Divide shared costs with your friends. (Currently supports equal splits for personal expenses only from this page).</p>
       </div>
 
       {!selectedExpense ? (
@@ -242,9 +272,9 @@ export default function SplitExpensesPage() {
           <CardHeader>
             <CardTitle className="font-headline flex items-center">
               <SplitIcon className="mr-2 h-6 w-6 text-primary" />
-              Step 1: Select an Expense to Split
+              Step 1: Select a Personal Expense to Split
             </CardTitle>
-            <CardDescription>Choose one of your recorded expenses to begin.</CardDescription>
+            <CardDescription>Choose one of your recorded personal (non-group) expenses to begin.</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoadingExpenses ? (
@@ -252,11 +282,11 @@ export default function SplitExpensesPage() {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <p className="ml-2 text-muted-foreground">Loading expenses...</p>
               </div>
-            ) : expenses.length === 0 ? (
+            ) : expenses.filter(exp => !exp.groupId).length === 0 ? (
               <div className="text-center py-10">
                 <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
-                <p className="mt-4 text-muted-foreground text-lg">No expenses recorded yet.</p>
-                <p className="text-sm text-muted-foreground mt-2">You need to add expenses before you can split them.</p>
+                <p className="mt-4 text-muted-foreground text-lg">No personal expenses recorded yet.</p>
+                <p className="text-sm text-muted-foreground mt-2">Add personal expenses to split them here, or split group expenses from the group's page.</p>
                 <Button asChild className="mt-4">
                   <Link href="/expenses/add">Add Expense</Link>
                 </Button>
@@ -264,9 +294,9 @@ export default function SplitExpensesPage() {
             ) : (
               <ScrollArea className="max-h-96">
                 <div className="space-y-3 pr-4">
-                  {expenses.map((expense) => (
-                    <Card 
-                      key={expense.id} 
+                  {expenses.filter(exp => !exp.groupId).map((expense) => (
+                    <Card
+                      key={expense.id}
                       className="hover:shadow-md transition-shadow cursor-pointer"
                       onClick={() => handleSelectExpense(expense)}
                     >
@@ -343,17 +373,18 @@ export default function SplitExpensesPage() {
                 </ScrollArea>
               </div>
             )}
-            
+
             <div className="pt-4 border-t">
                 <div className="flex justify-between items-center mb-2">
                     <p className="text-sm text-muted-foreground">
                         Splitting with: You + {Object.values(selectedFriendsToSplit).filter(Boolean).length} friend(s) = <span className="font-semibold text-foreground">{numberOfParticipants} participant(s)</span>
                     </p>
                 </div>
-                <p className="text-lg font-semibold">Amount per participant:</p>
+                <p className="text-lg font-semibold">Amount per participant (equally split):</p>
                 <p className="text-3xl font-bold text-primary">{formatCurrency(amountPerPerson)}</p>
+                 <p className="text-xs text-muted-foreground mt-1">Note: Non-equal split methods will be available soon.</p>
             </div>
-            
+
             <div className="flex justify-end gap-2 pt-4">
                 <Button variant="outline" onClick={handleClearSelection} disabled={isSavingSplit}>Cancel / Choose Other</Button>
                 <Button onClick={handleSaveSplit} disabled={isLoading || !selectedExpense || isSavingSplit || (Object.values(selectedFriendsToSplit).filter(Boolean).length === 0 && friends.length > 0) }>
@@ -365,7 +396,7 @@ export default function SplitExpensesPage() {
             {friends.length > 0 && Object.values(selectedFriendsToSplit).filter(Boolean).length === 0 && (
                  <p className="text-xs text-destructive text-right mt-1">Please select at least one friend to save the split.</p>
             )}
-            
+
           </CardContent>
         </Card>
       )}
@@ -374,9 +405,9 @@ export default function SplitExpensesPage() {
         <CardHeader>
             <CardTitle className="font-headline flex items-center">
                 <ListCollapse className="mr-2 h-6 w-6 text-primary" />
-                Split History
+                Split History (Personal Expenses)
             </CardTitle>
-            <CardDescription>Review your previously saved expense splits and manage settlements.</CardDescription>
+            <CardDescription>Review your previously saved expense splits and manage settlements. (Group splits are managed on the group's page).</CardDescription>
         </CardHeader>
         <CardContent>
             {isLoadingSavedSplits ? (
@@ -384,21 +415,51 @@ export default function SplitExpensesPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <p className="ml-2 text-muted-foreground">Loading split history...</p>
                 </div>
-            ) : savedSplits.length === 0 ? (
-                <p className="text-muted-foreground text-center py-6">No split expenses recorded yet.</p>
+            ) : savedSplits.filter(s => !s.groupId).length === 0 ? ( // Filter out group splits from this view
+                <p className="text-muted-foreground text-center py-6">No personal split expenses recorded yet.</p>
             ) : (
                 <ScrollArea className="max-h-[500px]">
                 <div className="space-y-4 pr-3">
-                    {savedSplits.map((split) => (
+                    {savedSplits.filter(s => !s.groupId).map((split) => ( // Filter out group splits
                         <Card key={split.id} className="shadow-sm">
                             <CardHeader className="pb-3">
-                                <CardTitle className="text-lg">{split.originalExpenseDescription}</CardTitle>
-                                <CardDescription>
-                                    Total: {formatCurrency(split.totalAmount)} | Split on: {format(split.createdAt.toDate(), "MMM dd, yyyy, p")}
-                                </CardDescription>
-                                <CardDescription>
-                                    Paid by: <span className="font-medium text-foreground">{getPayerDisplayName(split)}</span>
-                                </CardDescription>
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <CardTitle className="text-lg">{split.originalExpenseDescription}</CardTitle>
+                                        <CardDescription>
+                                            Total: {formatCurrency(split.totalAmount)} ({split.splitMethod}) | Split on: {format(split.createdAt.toDate(), "MMM dd, yyyy, p")}
+                                        </CardDescription>
+                                        <CardDescription>
+                                            Paid by: <span className="font-medium text-foreground">{getPayerDisplayName(split)}</span>
+                                        </CardDescription>
+                                    </div>
+                                    <div className="flex gap-1">
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" disabled onClick={() => toast({title: "Coming Soon", description: "Editing splits will be available soon."})}>
+                                            <Edit className="h-4 w-4" />
+                                            <span className="sr-only">Edit Split</span>
+                                        </Button>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/90" disabled={isDeletingSplit === split.id}>
+                                                    {isDeletingSplit === split.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                                    <span className="sr-only">Delete Split</span>
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Delete Split?</AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        Are you sure you want to delete the split for &quot;{split.originalExpenseDescription}&quot;? This action cannot be undone.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => split.id && handleDeleteSplit(split.id)} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    </div>
+                                </div>
                             </CardHeader>
                             <CardContent>
                                 <p className="text-sm font-medium mb-2">Participants & Settlements:</p>
@@ -423,9 +484,9 @@ export default function SplitExpensesPage() {
                                               currentUserProfile?.uid === split.paidBy && p.userId !== currentUserProfile.uid ? (
                                                 <AlertDialog>
                                                   <AlertDialogTrigger asChild>
-                                                    <Button 
-                                                        variant="outline" 
-                                                        size="sm" 
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
                                                         disabled={isProcessingSettlement === `${split.id}-${p.userId}`}
                                                         className="text-xs"
                                                     >
@@ -449,9 +510,9 @@ export default function SplitExpensesPage() {
                                               ) : currentUserProfile?.uid === p.userId && currentUserProfile.uid !== split.paidBy ? (
                                                  <AlertDialog>
                                                   <AlertDialogTrigger asChild>
-                                                    <Button 
-                                                        variant="secondary" 
-                                                        size="sm" 
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="sm"
                                                         disabled={isProcessingSettlement === `${split.id}-${p.userId}`}
                                                         className="text-xs"
                                                     >
@@ -495,4 +556,3 @@ export default function SplitExpensesPage() {
     </div>
   );
 }
-```

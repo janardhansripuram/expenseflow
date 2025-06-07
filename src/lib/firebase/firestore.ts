@@ -2,7 +2,7 @@
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, Reminder, ReminderFormData, RecurrenceType } from '@/lib/types';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType } from '@/lib/types';
 
 const EXPENSES_COLLECTION = 'expenses';
 const USERS_COLLECTION = 'users';
@@ -24,6 +24,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData): 
       category: expenseData.category,
       date: Timestamp.fromDate(new Date(expenseData.date)),
       notes: expenseData.notes || '',
+      receiptUrl: expenseData.receiptUrl || null,
       createdAt: Timestamp.now(),
     };
 
@@ -142,7 +143,6 @@ export async function getExpenseById(expenseId: string): Promise<Expense | null>
 export async function updateExpense(expenseId: string, expenseData: Partial<ExpenseFormData>): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
-    // Construct the update object carefully to avoid sending undefined fields unless intended
     const updateData: { [key: string]: any } = {};
 
     if (expenseData.description !== undefined) updateData.description = expenseData.description;
@@ -150,19 +150,20 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
     if (expenseData.category !== undefined) updateData.category = expenseData.category;
     if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(new Date(expenseData.date));
     if (expenseData.notes !== undefined) updateData.notes = expenseData.notes;
-    
-    // Handle group assignment explicitly
+    if (expenseData.receiptUrl !== undefined) updateData.receiptUrl = expenseData.receiptUrl;
+    else if (expenseData.receiptUrl === null) updateData.receiptUrl = null;
+
+
     if (expenseData.groupId) {
       updateData.groupId = expenseData.groupId;
-      updateData.groupName = expenseData.groupName; // Assumes groupName is passed if groupId is
-    } else if (expenseData.groupId === '' || expenseData.groupId === null) { // Check for explicit "no group"
+      updateData.groupName = expenseData.groupName;
+    } else if (expenseData.groupId === '' || expenseData.groupId === null) {
       updateData.groupId = null;
       updateData.groupName = null;
     }
-    // If groupId is not in expenseData at all, it means the group assignment isn't being changed, so we don't touch those fields.
-
+    
     if (Object.keys(updateData).length > 0) {
-        updateData.updatedAt = Timestamp.now(); // Add an updatedAt timestamp
+        updateData.updatedAt = Timestamp.now();
         await updateDoc(docRef, updateData);
     }
   } catch (error) {
@@ -175,6 +176,7 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
 export async function deleteExpense(expenseId: string): Promise<void> {
   try {
     const docRef = doc(db, EXPENSES_COLLECTION, expenseId);
+    // Note: Does not delete associated receipt image from Storage. This should be handled separately if needed.
     await deleteDoc(docRef);
   } catch (error) {
     console.error("Error deleting document: ", error);
@@ -263,7 +265,7 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
 export async function updateUserProfile(userId: string, data: { displayName?: string }): Promise<void> {
   try {
     const userRef = doc(db, USERS_COLLECTION, userId);
-    await updateDoc(userRef, data);
+    await updateDoc(userRef, { ...data, updatedAt: Timestamp.now() });
   } catch (error) {
     console.error("Error updating user profile: ", error);
     throw error;
@@ -288,17 +290,17 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       return { success: false, message: "You are already friends with this user." };
     }
 
-    const q1 = query(collection(db, FRIEND_REQUESTS_COLLECTION), 
-      where('fromUserId', '==', fromUserId), 
+    const q1 = query(collection(db, FRIEND_REQUESTS_COLLECTION),
+      where('fromUserId', '==', fromUserId),
       where('toUserId', '==', toUserId),
       where('status', '==', 'pending'));
     const existingReq1 = await getDocs(q1);
     if (!existingReq1.empty) {
        return { success: false, message: "A friend request to this user is already pending." };
     }
-    
-    const q2 = query(collection(db, FRIEND_REQUESTS_COLLECTION), 
-      where('fromUserId', '==', toUserId), 
+
+    const q2 = query(collection(db, FRIEND_REQUESTS_COLLECTION),
+      where('fromUserId', '==', toUserId),
       where('toUserId', '==', fromUserId),
       where('status', '==', 'pending'));
     const existingReq2 = await getDocs(q2);
@@ -311,7 +313,7 @@ export async function sendFriendRequest(fromUserId: string, fromUserEmail: strin
       fromUserEmail,
       fromUserDisplayName: fromUserDisplayName || fromUserEmail.split('@')[0],
       toUserId,
-      toUserEmail: toUser.email, 
+      toUserEmail: toUser.email,
       status: 'pending',
       createdAt: Timestamp.now(),
     });
@@ -341,7 +343,7 @@ export async function getIncomingFriendRequests(userId: string): Promise<FriendR
 
 export async function acceptFriendRequest(requestId: string, fromUserProfile: UserProfile, toUserProfile: UserProfile): Promise<void> {
   const requestRef = doc(db, FRIEND_REQUESTS_COLLECTION, requestId);
-  
+
   await runTransaction(db, async (transaction) => {
     const requestSnap = await transaction.get(requestRef);
     if (!requestSnap.exists()) {
@@ -351,7 +353,7 @@ export async function acceptFriendRequest(requestId: string, fromUserProfile: Us
     if (requestData.status !== 'pending') {
       throw new Error("Friend request is not pending.");
     }
-    
+
     const now = Timestamp.now();
 
     const friendDataForFromUser: Friend = {
@@ -391,7 +393,7 @@ export async function getFriends(userId: string): Promise<Friend[]> {
   try {
     if (!userId) return [];
     const friendsCollectionRef = collection(db, USERS_COLLECTION, userId, FRIENDS_SUBCOLLECTION);
-    const q = query(friendsCollectionRef, orderBy('displayName', 'asc'));
+    const q = query(friendsCollectionRef, orderBy('displayName', 'asc')); // Or 'addedAt'
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(docSnap => ({ ...docSnap.data(), uid: docSnap.id } as Friend));
   } catch (error) {
@@ -420,7 +422,7 @@ export async function removeFriend(currentUserId: string, friendUserId: string):
 export async function createGroup(
   creatorProfile: UserProfile,
   groupName: string,
-  initialMemberProfiles: UserProfile[] 
+  initialMemberProfiles: UserProfile[]
 ): Promise<string> {
   try {
     if (!groupName.trim()) throw new Error("Group name cannot be empty.");
@@ -486,9 +488,11 @@ export async function updateGroupDetails(groupId: string, data: { name?: string 
     const groupRef = doc(db, GROUPS_COLLECTION, groupId);
     const batch = writeBatch(db);
 
-    batch.update(groupRef, data);
+    const updateData: { [key: string]: any } = { ...data, updatedAt: Timestamp.now() };
+    batch.update(groupRef, updateData);
 
     if (data.name) {
+      // Update groupName in associated expenses
       const expensesQuery = query(collection(db, EXPENSES_COLLECTION), where('groupId', '==', groupId));
       const expensesSnapshot = await getDocs(expensesQuery);
       expensesSnapshot.forEach(expenseDoc => {
@@ -506,14 +510,14 @@ export async function addMembersToGroup(groupId: string, newMemberProfiles: User
   try {
     if (newMemberProfiles.length === 0) return;
     const groupRef = doc(db, GROUPS_COLLECTION, groupId);
-    
+
     await runTransaction(db, async (transaction) => {
       const groupSnap = await transaction.get(groupRef);
       if (!groupSnap.exists()) throw new Error("Group not found.");
-      
+
       const groupData = groupSnap.data() as Group;
       const existingMemberIds = new Set(groupData.memberIds);
-      
+
       const membersToAddDetails: GroupMemberDetail[] = [];
       const memberIdsToAdd: string[] = [];
 
@@ -531,7 +535,8 @@ export async function addMembersToGroup(groupId: string, newMemberProfiles: User
       if (memberIdsToAdd.length > 0) {
         transaction.update(groupRef, {
           memberIds: arrayUnion(...memberIdsToAdd),
-          memberDetails: arrayUnion(...membersToAddDetails)
+          memberDetails: arrayUnion(...membersToAddDetails),
+          updatedAt: Timestamp.now()
         });
       }
     });
@@ -544,7 +549,7 @@ export async function addMembersToGroup(groupId: string, newMemberProfiles: User
 export async function removeMemberFromGroup(groupId: string, memberIdToRemove: string): Promise<void> {
    try {
     const groupRef = doc(db, GROUPS_COLLECTION, groupId);
-    
+
     await runTransaction(db, async (transaction) => {
       const groupSnap = await transaction.get(groupRef);
       if (!groupSnap.exists()) throw new Error("Group not found.");
@@ -552,15 +557,27 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
       const groupData = groupSnap.data() as Group;
       const memberDetailToRemove = groupData.memberDetails.find(m => m.uid === memberIdToRemove);
 
-      if (!memberDetailToRemove) throw new Error("Member not found in group's detail list.");
+      if (!memberDetailToRemove && groupData.memberIds.includes(memberIdToRemove)) {
+         // This case could happen if memberDetails is somehow out of sync.
+         // For robustness, allow removal based on memberId if detail isn't found but ID is present.
+         // However, this indicates a potential data integrity issue elsewhere.
+         console.warn(`Member detail for UID ${memberIdToRemove} not found in group ${groupId}, but ID was in memberIds. Proceeding with ID removal.`);
+      }
+
 
       if (groupData.memberIds.length === 1 && groupData.memberIds.includes(memberIdToRemove)) {
+        // If removing the last member, delete the group.
         transaction.delete(groupRef);
+        // Consider deleting associated expenses or splits, or handle via backend functions.
       } else {
-        transaction.update(groupRef, {
-          memberIds: arrayRemove(memberIdToRemove),
-          memberDetails: arrayRemove(memberDetailToRemove)
-        });
+        const updatePayload: { memberIds: any, memberDetails?: any, updatedAt: Timestamp } = {
+            memberIds: arrayRemove(memberIdToRemove),
+            updatedAt: Timestamp.now()
+        };
+        if (memberDetailToRemove) {
+            updatePayload.memberDetails = arrayRemove(memberDetailToRemove);
+        }
+        transaction.update(groupRef, updatePayload);
       }
     });
   } catch (error) {
@@ -570,9 +587,15 @@ export async function removeMemberFromGroup(groupId: string, memberIdToRemove: s
 }
 
 // Split Expense Functions
-type CreateSplitExpenseData = Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'> & {
+type CreateSplitExpenseData = {
+  originalExpenseId: string;
   originalExpenseDescription: string;
+  splitMethod: SplitMethod;
+  totalAmount: number;
+  paidBy: string;
+  participants: SplitParticipant[];
   groupId?: string;
+  notes?: string;
 };
 
 export async function createSplitExpense(splitData: CreateSplitExpenseData): Promise<string> {
@@ -582,17 +605,48 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
     if (!splitData.originalExpenseDescription) throw new Error("Original expense description is required.");
     if (splitData.participants.length === 0) throw new Error("At least one participant is required.");
 
+    // Validate participants based on splitMethod
+    let calculatedTotalOwed = 0;
+    if (splitData.splitMethod === 'byAmount') {
+      calculatedTotalOwed = splitData.participants.reduce((sum, p) => sum + p.amountOwed, 0);
+      if (Math.abs(calculatedTotalOwed - splitData.totalAmount) > 0.01) { // Tolerance for floating point
+        throw new Error("Sum of amounts owed by participants does not match total expense amount.");
+      }
+    } else if (splitData.splitMethod === 'byPercentage') {
+      const totalPercentage = splitData.participants.reduce((sum, p) => sum + (p.percentage || 0), 0);
+      if (Math.abs(totalPercentage - 100) > 0.01) { // Tolerance
+        throw new Error("Sum of percentages does not equal 100%.");
+      }
+      // Calculate amountOwed for each participant based on percentage
+      splitData.participants = splitData.participants.map(p => ({
+        ...p,
+        amountOwed: (splitData.totalAmount * (p.percentage || 0)) / 100,
+      }));
+    } else if (splitData.splitMethod === 'equally') {
+      const numParticipants = splitData.participants.length;
+      if (numParticipants === 0) throw new Error("Cannot split equally with zero participants.");
+      const amountPerPerson = splitData.totalAmount / numParticipants;
+      splitData.participants = splitData.participants.map(p => ({
+        ...p,
+        amountOwed: amountPerPerson,
+      }));
+    }
+
+
     const involvedUserIds = Array.from(new Set([splitData.paidBy, ...splitData.participants.map(p => p.userId)]));
 
-    const dataToSave: any = {
-      ...splitData,
+    const dataToSave: Omit<SplitExpense, 'id'> = {
+      originalExpenseId: splitData.originalExpenseId,
+      originalExpenseDescription: splitData.originalExpenseDescription,
+      splitMethod: splitData.splitMethod,
+      totalAmount: splitData.totalAmount,
+      paidBy: splitData.paidBy,
+      participants: splitData.participants,
       involvedUserIds,
+      groupId: splitData.groupId || undefined,
+      notes: splitData.notes || '',
       createdAt: Timestamp.now(),
     };
-
-    if (splitData.groupId) {
-      dataToSave.groupId = splitData.groupId;
-    }
 
     const docRef = await addDoc(collection(db, SPLIT_EXPENSES_COLLECTION), dataToSave);
     return docRef.id;
@@ -614,7 +668,7 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
     return querySnapshot.docs.map(docSnap => ({
       id: docSnap.id,
       ...docSnap.data(),
-      createdAt: docSnap.data().createdAt as Timestamp, 
+      createdAt: docSnap.data().createdAt as Timestamp,
     } as SplitExpense));
   } catch (error) {
     console.error("Error getting split expenses for user: ", error);
@@ -657,10 +711,63 @@ export async function updateSplitParticipantSettlement(splitExpenseId: string, p
         }
         return p;
       });
-      transaction.update(splitExpenseRef, { participants: updatedParticipants });
+      transaction.update(splitExpenseRef, { participants: updatedParticipants, updatedAt: Timestamp.now() });
     });
   } catch (error) {
     console.error("Error updating participant settlement status: ", error);
+    throw error;
+  }
+}
+
+export async function deleteSplitExpense(splitExpenseId: string): Promise<void> {
+  try {
+    const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
+    await deleteDoc(splitExpenseRef);
+  } catch (error) {
+    console.error("Error deleting split expense: ", error);
+    throw error;
+  }
+}
+
+export async function updateSplitExpense(splitExpenseId: string, data: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'>>): Promise<void> {
+  try {
+    const splitExpenseRef = doc(db, SPLIT_EXPENSES_COLLECTION, splitExpenseId);
+    // Basic update for now, primarily for notes or simple fields.
+    // Full updates involving participants or splitMethod would require more complex logic and validation similar to createSplitExpense.
+    const updateData: { [key: string]: any } = { ...data, updatedAt: Timestamp.now() };
+
+    // If participants are part of the update, ensure validation (this is a placeholder for more complex logic)
+    if (data.participants && data.totalAmount && data.splitMethod) {
+        // Re-validate participants based on splitMethod (simplified version)
+        let calculatedTotalOwed = 0;
+        if (data.splitMethod === 'byAmount') {
+            calculatedTotalOwed = data.participants.reduce((sum, p) => sum + p.amountOwed, 0);
+            if (Math.abs(calculatedTotalOwed - data.totalAmount) > 0.01) {
+                throw new Error("Sum of amounts owed by participants does not match total expense amount for update.");
+            }
+        } else if (data.splitMethod === 'byPercentage') {
+            const totalPercentage = data.participants.reduce((sum, p) => sum + (p.percentage || 0), 0);
+            if (Math.abs(totalPercentage - 100) > 0.01) {
+                throw new Error("Sum of percentages does not equal 100% for update.");
+            }
+            updateData.participants = data.participants.map(p => ({
+                ...p,
+                amountOwed: (data.totalAmount! * (p.percentage || 0)) / 100,
+            }));
+        } else if (data.splitMethod === 'equally') {
+            const numParticipants = data.participants.length;
+            if (numParticipants === 0) throw new Error("Cannot split equally with zero participants for update.");
+            const amountPerPerson = data.totalAmount / numParticipants;
+            updateData.participants = data.participants.map(p => ({
+                ...p,
+                amountOwed: amountPerPerson,
+            }));
+        }
+    }
+
+    await updateDoc(splitExpenseRef, updateData);
+  } catch (error) {
+    console.error("Error updating split expense: ", error);
     throw error;
   }
 }

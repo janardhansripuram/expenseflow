@@ -20,7 +20,7 @@ export interface Expense {
   category: string;
   date: string; // Stored as YYYY-MM-DD string from form, converted to Firestore Timestamp on save
   notes?: string;
-  receiptUrl?: string; // URL to stored receipt image (for future use)
+  receiptUrl?: string;
   createdAt: Timestamp; // Firestore Timestamp
   userId: string;
   groupId?: string; // ID of the group this expense belongs to
@@ -35,6 +35,8 @@ export type ExpenseFormData = {
   notes?: string;
   groupId?: string; // Optional group ID
   groupName?: string; // Optional: passed to firestore, derived from selected group
+  receiptUrl?: string; // Added for managing uploads
+  receiptFile?: File | null; // For handling file input
 };
 
 export interface UserProfile {
@@ -78,11 +80,14 @@ export interface Group {
 }
 
 // Types for Expense Splitting
+export type SplitMethod = "equally" | "byAmount" | "byPercentage";
+
 export interface SplitParticipant {
-  userId: string; // UID of the participant
-  displayName?: string; // For display
-  email?: string; // For display
-  amountOwed: number;
+  userId: string;
+  displayName?: string;
+  email?: string;
+  amountOwed: number; // For 'equally' and 'byAmount', this is the final amount. For 'byPercentage', this is calculated.
+  percentage?: number; // Only for 'byPercentage'. Value from 0 to 100.
   isSettled: boolean;
 }
 
@@ -90,7 +95,7 @@ export interface SplitExpense {
   id?: string; // Firestore document ID
   originalExpenseId: string;
   originalExpenseDescription: string; // Denormalized for easy display
-  splitType: "equally"; // For now, only equally. Future: "unequally", "byAmount", "byPercentage"
+  splitMethod: SplitMethod;
   totalAmount: number;
   paidBy: string; // UID of the user who paid the original expense
   participants: SplitParticipant[];
