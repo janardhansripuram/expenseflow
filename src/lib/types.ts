@@ -88,6 +88,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
+  defaultCurrency?: CurrencyCode;
   createdAt: string;
 }
 
@@ -213,7 +214,7 @@ export interface Budget {
   name: string;
   category: string;
   amount: number;
-  currency: CurrencyCode; // Added currency field
+  currency: CurrencyCode;
   period: "monthly"; // For now, only monthly. Can be extended.
   startDate: string; // ISO string YYYY-MM-DD
   endDate: string; // ISO string YYYY-MM-DD
@@ -225,7 +226,6 @@ export type BudgetFormData = {
   name: string;
   category: string;
   amount: string; // Input as string, converted to number
-  currency: CurrencyCode; // Added currency field
+  currency: CurrencyCode;
   period: "monthly";
 }
-

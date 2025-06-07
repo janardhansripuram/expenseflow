@@ -351,6 +351,7 @@ export async function createUserProfile(userId: string, email: string, displayNa
       uid: userId,
       email: email.toLowerCase(),
       displayName: displayName || email.split('@')[0],
+      defaultCurrency: 'USD', // Set default currency on creation
       createdAt: Timestamp.now(),
     });
   } catch (error) {
@@ -369,6 +370,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
+        defaultCurrency: data.defaultCurrency || 'USD', // Default to USD if not set
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
@@ -389,6 +391,7 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
+        defaultCurrency: data.defaultCurrency || 'USD',
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
@@ -399,10 +402,19 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
   }
 }
 
-export async function updateUserProfile(userId: string, data: { displayName?: string }): Promise<void> {
+export async function updateUserProfile(userId: string, data: Partial<Pick<UserProfile, 'displayName' | 'defaultCurrency'>>): Promise<void> {
   try {
     const userRef = doc(db, USERS_COLLECTION, userId);
-    await updateDoc(userRef, { ...data, updatedAt: Timestamp.now() });
+    const updateData: { [key: string]: any } = { ...data, updatedAt: Timestamp.now() };
+    
+    // Ensure only allowed fields are updated
+    const allowedUpdates: Partial<UserProfile> = {};
+    if (data.displayName !== undefined) allowedUpdates.displayName = data.displayName;
+    if (data.defaultCurrency !== undefined) allowedUpdates.defaultCurrency = data.defaultCurrency;
+
+    if (Object.keys(allowedUpdates).length > 0) {
+        await updateDoc(userRef, { ...allowedUpdates, updatedAt: Timestamp.now() });
+    }
   } catch (error) {
     console.error("Error updating user profile: ", error);
     throw error;
@@ -1312,5 +1324,3 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
-
-
