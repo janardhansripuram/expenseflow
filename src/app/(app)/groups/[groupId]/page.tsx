@@ -107,8 +107,7 @@ export default function GroupDetailsPage() {
         setIsLoadingBalances(true);
         setIsLoadingPairwiseDebts(true);
     } else {
-        // When only refreshing balances/splits, group & members are likely stable
-        setIsLoadingExpenses(true); // Refresh expenses as they might have been added
+        setIsLoadingExpenses(true); 
         setIsLoadingSplits(true);
         setIsLoadingBalances(true);
         setIsLoadingPairwiseDebts(true);
@@ -119,8 +118,8 @@ export default function GroupDetailsPage() {
       const expensesPromise = getExpensesByGroupId(groupId);
       const splitsPromise = getSplitExpensesByGroupId(groupId);
       
-      let friendsPromise = Promise.resolve(friends); // Use existing if not full refresh
-      let profilePromise = Promise.resolve(currentUserProfile); // Use existing if not full refresh
+      let friendsPromise = Promise.resolve(friends); 
+      let profilePromise = Promise.resolve(currentUserProfile);
 
       if (refreshAll || friends.length === 0 || !currentUserProfile) {
         friendsPromise = getFriends(user.uid);
@@ -158,18 +157,17 @@ export default function GroupDetailsPage() {
       if (refreshAll) setIsLoading(false);
       setIsLoadingExpenses(false);
       setIsLoadingSplits(false);
-      // Balance and pairwise debt loading will be set to false in their respective useEffects
     }
   }, [user, groupId, toast, router, groupNameForm, friends, currentUserProfile]);
 
 
   useEffect(() => {
-    fetchGroupData(true); // Initial full fetch
-  }, []); // Only on initial mount, specific refreshes are handled by fetchGroupData(false)
+    fetchGroupData(true); 
+  }, []); 
 
 
   useEffect(() => {
-    if (!group || isLoadingExpenses || isLoadingSplits) {
+    if (!group || isLoadingExpenses || isLoadingSplits || !currentUserProfile) {
       setIsLoadingBalances(true);
       return;
     }
@@ -182,16 +180,13 @@ export default function GroupDetailsPage() {
       balances[member.uid] = { paidForGroup: 0, owesToOthersInGroup: 0 };
     });
     
-    // Process direct group expenses that have NOT been formally split
     groupExpenses.forEach(expense => {
       if (!splitOriginalExpenseIds.has(expense.id!) && balances[expense.userId]) {
         balances[expense.userId].paidForGroup += expense.amount;
       }
     });
     
-    // Process formalized splits
     splitExpensesForGroup.forEach(split => {
-        // Credit the payer for amounts owed by OTHERS in this split
         if (balances[split.paidBy]) {
             let amountPaidByPayerForOthersInThisSplit = 0;
             split.participants.forEach(participant => {
@@ -202,7 +197,6 @@ export default function GroupDetailsPage() {
             balances[split.paidBy].paidForGroup += amountPaidByPayerForOthersInThisSplit;
         }
 
-        // Debit participants who OWE in this split (and are not the payer and not settled)
         split.participants.forEach(participant => {
             if (balances[participant.userId] && participant.userId !== split.paidBy && !participant.isSettled) {
                 balances[participant.userId].owesToOthersInGroup += participant.amountOwed;
@@ -225,7 +219,7 @@ export default function GroupDetailsPage() {
 
     setGroupMemberBalances(finalBalances);
     setIsLoadingBalances(false);
-  }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits]);
+  }, [group, groupExpenses, splitExpensesForGroup, isLoadingExpenses, isLoadingSplits, currentUserProfile]);
 
   useEffect(() => {
     if (isLoadingBalances || !groupMemberBalances.length || !group) {
@@ -236,12 +230,12 @@ export default function GroupDetailsPage() {
     setIsLoadingPairwiseDebts(true);
 
     let mutableDebtors = groupMemberBalances
-      .filter(m => m.netBalance < -0.005) // Small tolerance for floating point
+      .filter(m => m.netBalance < -0.005) 
       .map(m => ({ uid: m.uid, amount: Math.abs(m.netBalance) }))
       .sort((a, b) => b.amount - a.amount);
 
     let mutableCreditors = groupMemberBalances
-      .filter(m => m.netBalance > 0.005) // Small tolerance
+      .filter(m => m.netBalance > 0.005) 
       .map(m => ({ uid: m.uid, amount: m.netBalance }))
       .sort((a, b) => b.amount - a.amount);
     
@@ -317,9 +311,7 @@ export default function GroupDetailsPage() {
         return;
     }
      if (memberIdToRemove === user.uid && group.memberIds.length === 1 && group.createdBy === user.uid) {
-        // User is the creator and the only member, this will delete the group.
     } else if (memberIdToRemove === user.uid) {
-        // User is leaving the group
     } else if (user.uid !== group.createdBy) {
         toast({variant: "destructive", title: "Action Not Allowed", description: "Only the group creator can remove other members."});
         return;
@@ -331,7 +323,7 @@ export default function GroupDetailsPage() {
       toast({ title: "Member Removed", description: "The member has been removed from the group." });
       
       if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
-        router.push("/groups"); // Redirect if user left or group was deleted
+        router.push("/groups"); 
       } else {
         fetchGroupData(true); 
       }
@@ -356,9 +348,9 @@ export default function GroupDetailsPage() {
     try {
       await updateGroupDetails(groupId, { name: values.name });
       toast({ title: "Group Name Updated", description: `Group name changed to "${values.name}".` });
-      setGroup(prev => prev ? { ...prev, name: values.name } : null); // Optimistic update
+      setGroup(prev => prev ? { ...prev, name: values.name } : null); 
       setIsEditGroupNameDialogOpen(false);
-      fetchGroupData(false); // Refresh data to ensure consistency, but not full reload
+      fetchGroupData(false); 
     } catch (error) {
       console.error("Error updating group name:", error);
       toast({ variant: "destructive", title: "Update Failed", description: "Could not update group name." });
@@ -422,9 +414,14 @@ export default function GroupDetailsPage() {
   }
   
   const isCurrentUserCreator = user?.uid === group.createdBy;
-  const outstandingSplits = splitExpensesForGroup.filter(split => 
-    split.participants.some(p => p.userId !== split.paidBy && !p.isSettled)
-  );
+  
+  const actionableSplitsForCurrentUser = useMemo(() => {
+    if (!currentUserProfile || !splitExpensesForGroup) return [];
+    return splitExpensesForGroup.filter(split =>
+      split.paidBy === currentUserProfile.uid &&
+      split.participants.some(p => p.userId !== split.paidBy && !p.isSettled)
+    );
+  }, [splitExpensesForGroup, currentUserProfile]);
 
   return (
     <div className="space-y-6">
@@ -637,7 +634,7 @@ export default function GroupDetailsPage() {
                     <CardDescription>
                         Expenses associated with {group.name}. 
                         Direct expenses you paid (if not yet formally split) contribute to your &quot;Paid for Group&quot; balance. 
-                        Formally split expenses are detailed in the &quot;Manage Split Settlements&quot; section.
+                        Formally split expenses are detailed in the &quot;Settle Debts Owed To You&quot; section if you are the payer.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -748,8 +745,8 @@ export default function GroupDetailsPage() {
 
              <Card className="shadow-lg">
                 <CardHeader>
-                    <CardTitle className="font-headline flex items-center"><Handshake className="mr-2 h-5 w-5 text-primary"/>Manage Split Settlements</CardTitle>
-                    <CardDescription>Settle outstanding shares from group splits you paid for.</CardDescription>
+                    <CardTitle className="font-headline flex items-center"><Handshake className="mr-2 h-5 w-5 text-primary"/>Settle Debts Owed To You (Group Splits)</CardTitle>
+                    <CardDescription>Manage shares owed to you from group splits you paid for.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoadingSplits ? (
@@ -757,17 +754,16 @@ export default function GroupDetailsPage() {
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <p className="ml-2">Loading splits...</p>
                         </div>
-                    ) : outstandingSplits.length > 0 ? (
+                    ) : actionableSplitsForCurrentUser.length > 0 ? (
                         <ScrollArea className="h-[250px] md:h-[300px]">
                             <div className="space-y-4 pr-2">
-                                {outstandingSplits.map(split => {
-                                    const payerOfThisSplit = group.memberDetails.find(m => m.uid === split.paidBy);
+                                {actionableSplitsForCurrentUser.map(split => {
                                     return (
                                         <Card key={split.id} className="shadow-sm">
                                             <CardHeader className="pb-2">
                                                 <CardTitle className="text-md">{split.originalExpenseDescription}</CardTitle>
                                                 <CardDescription>
-                                                    Total: {formatCurrency(split.totalAmount)} | Paid by: {payerOfThisSplit?.displayName || payerOfThisSplit?.email || "Unknown"}
+                                                    Total: {formatCurrency(split.totalAmount)} | You paid for this split.
                                                 </CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-2">
@@ -784,31 +780,29 @@ export default function GroupDetailsPage() {
                                                                     </Avatar>
                                                                     <div>
                                                                         <p className="text-sm font-medium">{participantDetail?.displayName || participantDetail?.email}</p>
-                                                                        <p className="text-xs text-red-600">Owes: {formatCurrency(participant.amountOwed)}</p>
+                                                                        <p className="text-xs text-red-600">Owes You: {formatCurrency(participant.amountOwed)}</p>
                                                                     </div>
                                                                 </div>
-                                                                {currentUserProfile?.uid === split.paidBy && (
-                                                                    <AlertDialog>
-                                                                        <AlertDialogTrigger asChild>
-                                                                            <Button variant="outline" size="sm" className="text-xs" disabled={isProcessingSettlement === `${split.id}-${participant.userId}`}>
-                                                                                {isProcessingSettlement === `${split.id}-${participant.userId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckSquare className="mr-1.5 h-3 w-3"/>}
-                                                                                Mark Settled
-                                                                            </Button>
-                                                                        </AlertDialogTrigger>
-                                                                        <AlertDialogContent>
-                                                                            <AlertDialogHeader>
-                                                                                <AlertDialogTitle>Confirm Settlement</AlertDialogTitle>
-                                                                                <AlertDialogDescription>
-                                                                                    Are you sure you want to mark {participantDetail?.displayName || participantDetail?.email} as settled for their share of {formatCurrency(participant.amountOwed)} for the expense &quot;{split.originalExpenseDescription}&quot;?
-                                                                                </AlertDialogDescription>
-                                                                            </AlertDialogHeader>
-                                                                            <AlertDialogFooter>
-                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                                <AlertDialogAction onClick={() => split.id && handleSettleSplitParticipant(split.id, participant.userId)}>Confirm</AlertDialogAction>
-                                                                            </AlertDialogFooter>
-                                                                        </AlertDialogContent>
-                                                                    </AlertDialog>
-                                                                )}
+                                                                <AlertDialog>
+                                                                    <AlertDialogTrigger asChild>
+                                                                        <Button variant="outline" size="sm" className="text-xs" disabled={isProcessingSettlement === `${split.id}-${participant.userId}`}>
+                                                                            {isProcessingSettlement === `${split.id}-${participant.userId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckSquare className="mr-1.5 h-3 w-3"/>}
+                                                                            Mark Settled
+                                                                        </Button>
+                                                                    </AlertDialogTrigger>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>Confirm Settlement</AlertDialogTitle>
+                                                                            <AlertDialogDescription>
+                                                                                Are you sure you want to mark {participantDetail?.displayName || participantDetail?.email} as settled for their share of {formatCurrency(participant.amountOwed)} for the expense &quot;{split.originalExpenseDescription}&quot;?
+                                                                            </AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                        <AlertDialogFooter>
+                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                            <AlertDialogAction onClick={() => split.id && handleSettleSplitParticipant(split.id, participant.userId)}>Confirm</AlertDialogAction>
+                                                                        </AlertDialogFooter>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
                                                             </div>
                                                         );
                                                 })}
@@ -819,7 +813,9 @@ export default function GroupDetailsPage() {
                             </div>
                         </ScrollArea>
                     ) : (
-                        <p className="text-muted-foreground text-center py-6">All group splits are settled, or no splits have been made for this group yet.</p>
+                        <p className="text-muted-foreground text-center py-6">
+                            All shares owed to you in group splits are settled, or you haven&apos;t paid for any group splits with outstanding shares from others.
+                        </p>
                     )}
                 </CardContent>
             </Card>
@@ -847,18 +843,18 @@ export default function GroupDetailsPage() {
                                                         <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(debt.from.displayName, debt.from.email)}`} alt={debt.from.displayName || debt.from.email} data-ai-hint="person avatar"/>
                                                         <AvatarFallback>{getInitials(debt.from.displayName, debt.from.email)}</AvatarFallback>
                                                     </Avatar>
-                                                    <span className="font-medium text-sm">{debt.from.displayName || debt.from.email}</span>
+                                                    <span className="font-medium text-sm">{debt.from.displayName || debt.from.email} {debt.from.uid === currentUserProfile?.uid ? "(You)" : ""}</span>
                                                 </div>
                                                 <div className="flex flex-col items-center">
                                                     <ArrowRight className="h-5 w-5 text-muted-foreground"/>
                                                     <span className="text-xs text-destructive font-semibold">{formatCurrency(debt.amount)}</span>
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                     <Avatar className="h-8 w-8">
+                                                <div className="flex items-center gap-2 justify-end">
+                                                    <span className="font-medium text-sm text-right">{debt.to.displayName || debt.to.email} {debt.to.uid === currentUserProfile?.uid ? "(You)" : ""}</span>
+                                                    <Avatar className="h-8 w-8">
                                                         <AvatarImage src={`https://placehold.co/40x40.png?text=${getInitials(debt.to.displayName, debt.to.email)}`} alt={debt.to.displayName || debt.to.email} data-ai-hint="person avatar"/>
                                                         <AvatarFallback>{getInitials(debt.to.displayName, debt.to.email)}</AvatarFallback>
                                                     </Avatar>
-                                                    <span className="font-medium text-sm">{debt.to.displayName || debt.to.email}</span>
                                                 </div>
                                             </div>
                                         </CardContent>
@@ -893,6 +889,3 @@ export default function GroupDetailsPage() {
     </div>
   );
 }
-
-
-    
