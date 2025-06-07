@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
@@ -203,29 +204,29 @@ export default function EditSplitExpensePage() {
     setIsSaving(true);
 
     const updatedParticipants: SplitParticipant[] = splitExpense.participants.map(existingP => {
-      let amountOwed = existingP.amountOwed; // Default to existing, especially for 'equally'
+      let amountOwed = existingP.amountOwed; // Default to existing
       let percentage = existingP.percentage;
       
       if (splitMethod === 'byAmount') {
         amountOwed = parseFloat(participantValues[existingP.userId]?.amount || '0') || 0;
       } else if (splitMethod === 'byPercentage') {
         percentage = parseFloat(participantValues[existingP.userId]?.percentage || '0') || 0;
-        // amountOwed will be recalculated by updateSplitExpense
+        // amountOwed will be recalculated by updateSplitExpense based on originalExpense.totalAmount
+      } else if (splitMethod === 'equally') {
+         // amountOwed will be recalculated by updateSplitExpense
       }
-      // For 'equally', amountOwed is implicitly calculated by updateSplitExpense based on total participants
       
       return {
         ...existingP, // Keep existing displayName, email, isSettled
-        amountOwed: amountOwed, // This might be a temporary value if percentages are used
+        amountOwed: amountOwed, // This might be a temporary value if percentages or equal split are used
         percentage: percentage,
       };
     });
 
-    const dataToUpdate: Partial<Omit<SplitExpense, 'id' | 'createdAt' | 'involvedUserIds'>> = {
+    const dataToUpdate: Partial<Pick<SplitExpense, 'splitMethod' | 'participants' | 'notes'>> = {
       splitMethod: splitMethod,
       participants: updatedParticipants,
       notes: notes || "",
-      // totalAmount is derived from originalExpense, not directly editable here for the split
     };
 
     try {
@@ -395,3 +396,4 @@ export default function EditSplitExpensePage() {
     </div>
   );
 }
+
