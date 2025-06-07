@@ -45,7 +45,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { ListChecks, PlusCircle, Trash2, CalendarIcon, Edit, Loader2, BellRing } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { addReminder, getRemindersByUser, updateReminderCompletion, deleteReminder } from "@/lib/firebase/firestore";
+import { addReminder, getRemindersByUser, updateReminderCompletion, deleteReminder, updateReminder } from "@/lib/firebase/firestore";
 import type { Reminder, ReminderFormData, RecurrenceType } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -68,7 +68,10 @@ export default function RemindersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessing, setIsProcessing] = useState<string | null>(null); // Reminder ID being processed
-  const [isAddReminderOpen, setIsAddReminderOpen] = useState(false);
+  
+  const [isReminderDialogOpen, setIsReminderDialogOpen] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
+
 
   const form = useForm<ReminderFormData>({
     resolver: zodResolver(reminderSchema),
@@ -97,22 +100,59 @@ export default function RemindersPage() {
   useEffect(() => {
     fetchReminders();
   }, [fetchReminders]);
+  
+  useEffect(() => {
+    if (editingReminder) {
+      form.reset({
+        title: editingReminder.title,
+        notes: editingReminder.notes || "",
+        dueDate: editingReminder.dueDate, // Already in yyyy-MM-dd format
+        recurrence: editingReminder.recurrence,
+      });
+    } else {
+      form.reset({
+        title: "",
+        notes: "",
+        dueDate: format(new Date(), "yyyy-MM-dd"),
+        recurrence: "none",
+      });
+    }
+  }, [editingReminder, form, isReminderDialogOpen]);
 
-  const handleAddReminder = async (values: ReminderFormData) => {
+
+  const handleFormSubmit = async (values: ReminderFormData) => {
     if (!user) return;
     setIsSubmitting(true);
     try {
-      await addReminder(user.uid, values);
-      toast({ title: "Reminder Added", description: "Your reminder has been set." });
+      if (editingReminder && editingReminder.id) {
+        await updateReminder(editingReminder.id, values);
+        toast({ title: "Reminder Updated", description: "Your reminder has been successfully updated." });
+      } else {
+        await addReminder(user.uid, values);
+        toast({ title: "Reminder Added", description: "Your reminder has been set." });
+      }
       form.reset({ title: "", notes: "", dueDate: format(new Date(), "yyyy-MM-dd"), recurrence: "none" });
-      setIsAddReminderOpen(false);
+      setIsReminderDialogOpen(false);
+      setEditingReminder(null);
       fetchReminders();
     } catch (error) {
-      console.error("Error adding reminder:", error);
-      toast({ variant: "destructive", title: "Error", description: "Could not add reminder." });
+      console.error("Error saving reminder:", error);
+      toast({ variant: "destructive", title: "Error", description: `Could not ${editingReminder ? 'update' : 'add'} reminder.` });
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const openAddReminderDialog = () => {
+    setEditingReminder(null);
+    // form.reset() is handled by useEffect watching isReminderDialogOpen and editingReminder
+    setIsReminderDialogOpen(true);
+  };
+
+  const openEditReminderDialog = (reminder: Reminder) => {
+    setEditingReminder(reminder);
+     // form.reset() is handled by useEffect watching isReminderDialogOpen and editingReminder
+    setIsReminderDialogOpen(true);
   };
 
   const handleToggleComplete = async (reminderId: string, currentStatus: boolean) => {
@@ -158,120 +198,125 @@ export default function RemindersPage() {
           <h1 className="text-3xl font-bold tracking-tight font-headline text-foreground">Reminders</h1>
           <p className="text-muted-foreground">Set up reminders for upcoming bills or payments.</p>
         </div>
-        <Dialog open={isAddReminderOpen} onOpenChange={setIsAddReminderOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Create New Reminder</DialogTitle>
-              <DialogDescription>Fill in the details for your new reminder.</DialogDescription>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleAddReminder)} className="space-y-4 py-4">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., Pay Rent" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="dueDate"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Due Date</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant={"outline"}
-                              className={cn(
-                                "w-full pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                            >
-                              {field.value ? (
-                                format(parseISO(field.value), "PPP")
-                              ) : (
-                                <span>Pick a date</span>
-                              )}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value ? parseISO(field.value) : undefined}
-                            onSelect={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                            disabled={(date) => date < new Date(new Date().setDate(new Date().getDate()-1)) } // Disable past dates
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="recurrence"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Recurrence</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select recurrence" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {recurrenceOptions.map(opt => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="notes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Notes (Optional)</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Add any relevant notes..." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <DialogFooter className="pt-2">
-                  <DialogClose asChild>
-                    <Button type="button" variant="outline">Cancel</Button>
-                  </DialogClose>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
-                    Save Reminder
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={openAddReminderDialog}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
+        </Button>
       </div>
+
+      <Dialog open={isReminderDialogOpen} onOpenChange={(isOpen) => {
+          setIsReminderDialogOpen(isOpen);
+          if (!isOpen) setEditingReminder(null); // Clear editing state when dialog closes
+      }}>
+        <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+            <DialogTitle>{editingReminder ? "Edit Reminder" : "Create New Reminder"}</DialogTitle>
+            <DialogDescription>
+            {editingReminder ? "Update the details for your reminder." : "Fill in the details for your new reminder."}
+            </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4 py-4">
+            <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                <FormItem>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl>
+                    <Input placeholder="e.g., Pay Rent" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                </FormItem>
+                )}
+            />
+            <FormField
+                control={form.control}
+                name="dueDate"
+                render={({ field }) => (
+                <FormItem className="flex flex-col">
+                    <FormLabel>Due Date</FormLabel>
+                    <Popover>
+                    <PopoverTrigger asChild>
+                        <FormControl>
+                        <Button
+                            variant={"outline"}
+                            className={cn(
+                            "w-full pl-3 text-left font-normal",
+                            !field.value && "text-muted-foreground"
+                            )}
+                        >
+                            {field.value ? (
+                            format(parseISO(field.value), "PPP")
+                            ) : (
+                            <span>Pick a date</span>
+                            )}
+                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                        </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                        mode="single"
+                        selected={field.value ? parseISO(field.value) : undefined}
+                        onSelect={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
+                        disabled={(date) => date < new Date(new Date().setDate(new Date().getDate()-1)) } // Disable past dates
+                        initialFocus
+                        />
+                    </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                </FormItem>
+                )}
+            />
+            <FormField
+                control={form.control}
+                name="recurrence"
+                render={({ field }) => (
+                <FormItem>
+                    <FormLabel>Recurrence</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                        <SelectTrigger>
+                        <SelectValue placeholder="Select recurrence" />
+                        </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                        {recurrenceOptions.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                    </Select>
+                    <FormMessage />
+                </FormItem>
+                )}
+            />
+            <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                <FormItem>
+                    <FormLabel>Notes (Optional)</FormLabel>
+                    <FormControl>
+                    <Textarea placeholder="Add any relevant notes..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                </FormItem>
+                )}
+            />
+            <DialogFooter className="pt-2">
+                <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (editingReminder ? <Edit className="mr-2 h-4 w-4" /> : <PlusCircle className="mr-2 h-4 w-4" />)}
+                {editingReminder ? "Save Changes" : "Save Reminder"}
+                </Button>
+            </DialogFooter>
+            </form>
+        </Form>
+        </DialogContent>
+      </Dialog>
+
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -325,13 +370,13 @@ export default function RemindersPage() {
                     </CardContent>
                   )}
                   <CardFooter className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" size="sm" disabled>
-                       <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit (Soon)
+                    <Button variant="outline" size="sm" onClick={() => reminder.id && openEditReminderDialog(reminder)} disabled={isProcessing === reminder.id}>
+                       <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit
                     </Button>
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
                             <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/80" disabled={isProcessing === reminder.id}>
-                                {isProcessing === reminder.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                {isProcessing === reminder.id && isProcessing !== editingReminder?.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -359,3 +404,4 @@ export default function RemindersPage() {
     </div>
   );
 }
+

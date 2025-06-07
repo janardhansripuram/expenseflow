@@ -567,6 +567,22 @@ export async function getRemindersByUser(userId: string): Promise<Reminder[]> {
   }
 }
 
+export async function updateReminder(reminderId: string, data: ReminderFormData): Promise<void> {
+  try {
+    const reminderRef = doc(db, REMINDERS_COLLECTION, reminderId);
+    await updateDoc(reminderRef, {
+      title: data.title,
+      notes: data.notes || '',
+      dueDate: Timestamp.fromDate(new Date(data.dueDate)),
+      recurrence: data.recurrence,
+      updatedAt: Timestamp.now(),
+    });
+  } catch (error) {
+    console.error("Error updating reminder: ", error);
+    throw error;
+  }
+}
+
 export async function updateReminderCompletion(reminderId: string, isCompleted: boolean): Promise<void> {
   try {
     const reminderRef = doc(db, REMINDERS_COLLECTION, reminderId);
