@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,12 +85,10 @@ export default function ExpensesPage() {
   const [currentFilters, setCurrentFilters] = useState<FilterCriteria>(initialFilterCriteria);
   const [currentSort, setCurrentSort] = useState<SortCriteria>(initialSortCriteria);
   
-  // Temporary state for dialog inputs
   const [tempFilters, setTempFilters] = useState<FilterCriteria>(initialFilterCriteria);
   const [tempSort, setTempSort] = useState<SortCriteria>(initialSortCriteria);
 
-
-  const fetchInitialData = async () => {
+  const fetchInitialData = useCallback(async () => {
     if (user) {
       setIsLoading(true);
       try {
@@ -121,14 +119,13 @@ export default function ExpensesPage() {
       setUniqueCategories([]);
       setIsLoading(false);
     }
-  };
+  }, [user, toast]);
   
   useEffect(() => {
     fetchInitialData();
-  }, [user]);
+  }, [fetchInitialData]);
 
   useEffect(() => {
-    // Initialize temp states when dialog opens or filters change
     setTempFilters(currentFilters);
     setTempSort(currentSort);
   }, [isFilterDialogOpen, currentFilters, currentSort]);
@@ -136,14 +133,12 @@ export default function ExpensesPage() {
   const filteredAndSortedExpenses = useMemo(() => {
     let processedExpenses = [...allExpenses];
 
-    // Apply search term
     if (currentFilters.searchTerm) {
       processedExpenses = processedExpenses.filter(exp => 
         exp.description.toLowerCase().includes(currentFilters.searchTerm.toLowerCase())
       );
     }
 
-    // Apply date range
     if (currentFilters.startDate) {
       const startDate = parseISO(currentFilters.startDate);
       processedExpenses = processedExpenses.filter(exp => parseISO(exp.date) >= startDate);
@@ -153,12 +148,10 @@ export default function ExpensesPage() {
       processedExpenses = processedExpenses.filter(exp => parseISO(exp.date) <= endDate);
     }
     
-    // Apply category
     if (currentFilters.category !== 'all') {
       processedExpenses = processedExpenses.filter(exp => exp.category === currentFilters.category);
     }
 
-    // Apply amount range
     if (currentFilters.minAmount) {
       processedExpenses = processedExpenses.filter(exp => exp.amount >= parseFloat(currentFilters.minAmount));
     }
@@ -166,7 +159,6 @@ export default function ExpensesPage() {
       processedExpenses = processedExpenses.filter(exp => exp.amount <= parseFloat(currentFilters.maxAmount));
     }
 
-    // Apply group filter
     if (currentFilters.groupId !== 'all') {
       if (currentFilters.groupId === 'personal') {
         processedExpenses = processedExpenses.filter(exp => !exp.groupId);
@@ -175,7 +167,6 @@ export default function ExpensesPage() {
       }
     }
 
-    // Apply sorting
     processedExpenses.sort((a, b) => {
       let valA = a[currentSort.sortBy as keyof Expense];
       let valB = b[currentSort.sortBy as keyof Expense];
@@ -205,8 +196,7 @@ export default function ExpensesPage() {
     return processedExpenses;
   }, [allExpenses, currentFilters, currentSort]);
 
-
-  const handleDelete = async (expenseId: string) => {
+  const handleDelete = useCallback(async (expenseId: string) => {
     setIsDeleting(expenseId);
     try {
       await deleteExpense(expenseId);
@@ -214,7 +204,7 @@ export default function ExpensesPage() {
         title: "Expense Deleted",
         description: "The expense has been successfully deleted.",
       });
-      fetchInitialData(); // Refresh the list
+      fetchInitialData(); 
     } catch (error) {
       console.error("Failed to delete expense:", error);
       toast({
@@ -225,25 +215,24 @@ export default function ExpensesPage() {
     } finally {
       setIsDeleting(null);
     }
-  };
+  }, [toast, fetchInitialData]);
 
-  const handleEdit = (expenseId: string) => {
+  const handleEdit = useCallback((expenseId: string) => {
     router.push(`/expenses/edit/${expenseId}`);
-  };
+  }, [router]);
 
-  const handleApplyFiltersFromDialog = () => {
+  const handleApplyFiltersFromDialog = useCallback(() => {
     setCurrentFilters(tempFilters);
     setCurrentSort(tempSort);
     setIsFilterDialogOpen(false);
-  };
+  }, [tempFilters, tempSort]);
 
-  const handleClearFilters = () => {
+  const handleClearFilters = useCallback(() => {
     setCurrentFilters(initialFilterCriteria);
     setCurrentSort(initialSortCriteria);
-    setTempFilters(initialFilterCriteria); // Also reset temp for dialog
+    setTempFilters(initialFilterCriteria); 
     setTempSort(initialSortCriteria);
-    //setIsFilterDialogOpen(false); // Optionally close dialog
-  };
+  }, []);
   
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -493,3 +482,4 @@ export default function ExpensesPage() {
   );
 }
 
+    
