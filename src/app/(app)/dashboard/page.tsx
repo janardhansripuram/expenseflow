@@ -5,16 +5,17 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useRouter } from "next/navigation"; // Added useRouter
+import { useRouter } from "next/navigation"; 
 import { ArrowRight, PlusCircle, BarChart3, List, Loader2, Users, SplitIcon, BellRing, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getRecentExpensesByUser, getExpensesByUser, getRemindersByUser } from "@/lib/firebase/firestore";
-import type { Expense, Reminder } from "@/lib/types";
+import type { Expense, Reminder, CurrencyCode } from "@/lib/types";
 import { format, parseISO, isToday, isPast, differenceInDays, startOfDay } from "date-fns";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface ChartDataItem {
   category: string;
@@ -28,7 +29,7 @@ interface ProcessedReminder extends Reminder {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const router = useRouter(); // Initialized useRouter
+  const router = useRouter(); 
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
   const [userReminders, setUserReminders] = useState<Reminder[]>([]);
@@ -78,6 +79,8 @@ export default function DashboardPage() {
       return [];
     }
     const dataByCat = allUserExpensesForChart.reduce((acc, expense) => {
+      // For multi-currency, direct sum is problematic.
+      // This chart assumes a single currency or sums directly.
       acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
       return acc;
     }, {} as Record<string, number>);
@@ -85,7 +88,13 @@ export default function DashboardPage() {
     return Object.entries(dataByCat)
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total)
-      .slice(0, 5); // Show top 5 categories
+      .slice(0, 5); 
+  }, [allUserExpensesForChart]);
+
+  const hasMixedCurrenciesInChartData = useMemo(() => {
+    if (allUserExpensesForChart.length <= 1) return false;
+    const currencies = new Set(allUserExpensesForChart.map(exp => exp.currency));
+    return currencies.size > 1;
   }, [allUserExpensesForChart]);
 
 
@@ -109,17 +118,17 @@ export default function DashboardPage() {
         if (a.status !== 'overdue' && b.status === 'overdue') return 1;
         if (a.status === 'dueToday' && b.status !== 'dueToday') return -1;
         if (a.status !== 'dueToday' && b.status === 'dueToday') return 1;
-        return differenceInDays(a.dueDateObj, b.dueDateObj); // Sort upcoming by soonest
+        return differenceInDays(a.dueDateObj, b.dueDateObj); 
       })
-      .slice(0, 3); // Show top 3 actionable reminders
+      .slice(0, 3); 
   }, [userReminders]);
 
   const overdueCount = useMemo(() => userReminders.filter(r => !r.isCompleted && isPast(parseISO(r.dueDate)) && !isToday(parseISO(r.dueDate))).length, [userReminders]);
   const dueTodayCount = useMemo(() => userReminders.filter(r => !r.isCompleted && isToday(parseISO(r.dueDate))).length, [userReminders]);
 
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
   };
   
   const chartConfig = {
@@ -171,7 +180,7 @@ export default function DashboardPage() {
                           </Badge>
                         )}
                     </div>
-                    <p className="font-semibold text-sm ml-2">{formatCurrency(expense.amount)}</p>
+                    <p className="font-semibold text-sm ml-2">{formatCurrency(expense.amount, expense.currency)}</p>
                   </div>
                 ))}
                  <Button variant="outline" className="w-full mt-2" asChild>
@@ -205,28 +214,38 @@ export default function DashboardPage() {
                     <p className="ml-2 text-sm text-muted-foreground">Loading chart...</p>
                 </div>
             ) : dashboardChartData.length > 0 ? (
-              <div className="h-[200px] w-full">
-                <ChartContainer config={chartConfig} className="w-full h-full">
-                  <BarChart accessibilityLayer data={dashboardChartData} layout="vertical" margin={{left: 10, right:10}}>
-                    <CartesianGrid horizontal={false} />
-                    <XAxis type="number" hide />
-                    <YAxis 
-                        dataKey="category" 
-                        type="category" 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tickMargin={5}
-                        width={80}
-                        tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
-                    />
-                    <Tooltip 
-                        cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
-                        content={<ChartTooltipContent indicator="dot" />} 
-                    />
-                    <Bar dataKey="total" fill="var(--color-total)" radius={4} barSize={15} />
-                  </BarChart>
-                </ChartContainer>
-              </div>
+              <>
+                {hasMixedCurrenciesInChartData && (
+                  <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription>
+                      Chart data includes expenses in multiple currencies summed directly. This may not be arithmetically accurate.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <div className="h-[200px] w-full">
+                  <ChartContainer config={chartConfig} className="w-full h-full">
+                    <BarChart accessibilityLayer data={dashboardChartData} layout="vertical" margin={{left: 10, right:10}}>
+                      <CartesianGrid horizontal={false} />
+                      <XAxis type="number" hide />
+                      <YAxis 
+                          dataKey="category" 
+                          type="category" 
+                          tickLine={false} 
+                          axisLine={false} 
+                          tickMargin={5}
+                          width={80}
+                          tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
+                      />
+                      <Tooltip 
+                          cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
+                          content={<ChartTooltipContent indicator="dot" />} 
+                      />
+                      <Bar dataKey="total" fill="var(--color-total)" radius={4} barSize={15} />
+                    </BarChart>
+                  </ChartContainer>
+                </div>
+              </>
             ) : (
                  <div className="flex flex-col items-center text-center h-[200px] justify-center">
                      <BarChart3 className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
@@ -324,4 +343,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

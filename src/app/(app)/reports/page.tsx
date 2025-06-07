@@ -5,10 +5,10 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays, DownloadCloud } from "lucide-react";
+import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon, CalendarDays, DownloadCloud, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser } from "@/lib/firebase/firestore";
-import type { Expense } from "@/lib/types";
+import type { Expense, CurrencyCode } from "@/lib/types";
 import { summarizeSpending, SummarizeSpendingOutput } from "@/ai/flows/summarize-spending";
 import { useToast } from "@/hooks/use-toast";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
@@ -16,6 +16,8 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import { subDays, startOfMonth, endOfMonth, parseISO, format, startOfDay, endOfDay } from 'date-fns';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
 
 type PeriodOption = "last7days" | "last30days" | "currentMonth" | "allTime";
 type ReportPeriod = PeriodOption | "custom";
@@ -23,6 +25,7 @@ type ReportPeriod = PeriodOption | "custom";
 interface ChartDataItem {
   category: string;
   total: number;
+  currency?: CurrencyCode; // For potential future use in more complex charts
 }
 
 const PIE_COLORS = [
@@ -82,7 +85,6 @@ export default function ReportsPage() {
         const parsedEndDate = parseISO(customEndDate);
         
         if (parsedStartDate > parsedEndDate) {
-          // toast({ variant: "destructive", title: "Invalid Date Range", description: "Start date cannot be after end date." });
           return []; 
         }
         startDateFilter = startOfDay(parsedStartDate);
@@ -111,10 +113,15 @@ export default function ReportsPage() {
     } else if (selectedPeriod !== "allTime") {
         return [];
     }
-    return expenses; // Should not be reached if logic is correct, but as fallback
+    return expenses; 
   }, [expenses, selectedPeriod, customStartDate, customEndDate]);
+  
+  const hasMixedCurrenciesInChartData = useMemo(() => {
+    if (filteredExpenses.length <= 1) return false;
+    const currencies = new Set(filteredExpenses.map(exp => exp.currency));
+    return currencies.size > 1;
+  }, [filteredExpenses]);
 
-  // Effect to clear AI summary when filteredExpenses change (due to period/date change)
   useEffect(() => {
     setSummaryData(null);
   }, [filteredExpenses]);
@@ -135,7 +142,7 @@ export default function ReportsPage() {
     setSummaryData(null); 
     try {
       const spendingDataString = filteredExpenses
-        .map(e => `${e.category} - ${e.description}: $${e.amount.toFixed(2)} on ${e.date}`)
+        .map(e => `${e.category} - ${e.description}: ${e.amount.toFixed(2)} ${e.currency} on ${e.date}`)
         .join('\n');
       
       let periodDescription = "";
@@ -164,6 +171,7 @@ export default function ReportsPage() {
   const chartData: ChartDataItem[] = useMemo(() => {
     if (!filteredExpenses.length) return [];
     const dataByCat = filteredExpenses.reduce((acc, expense) => {
+      // NOTE: Direct sum if mixed currencies. Stated as limitation.
       acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
       return acc;
     }, {} as Record<string, number>);
@@ -174,12 +182,13 @@ export default function ReportsPage() {
   }, [filteredExpenses]);
 
   const totalSpendingForPeriod = useMemo(() => {
+    // NOTE: Direct sum if mixed currencies.
     return chartData.reduce((sum, item) => sum + item.total, 0);
   }, [chartData]);
 
   const barChartConfig = {
     total: {
-      label: "Total Spent",
+      label: "Total Spent", // Label will be generic as currency might be mixed
       color: "hsl(var(--chart-1))",
     },
   } satisfies Record<string, any>;
@@ -233,11 +242,13 @@ export default function ReportsPage() {
         "Description", 
         "Category", 
         "Amount", 
+        "Currency", // New column
         "Notes", 
         "Group Name",
         "Is Recurring",
         "Recurrence Frequency",
-        "Recurrence End Date"
+        "Recurrence End Date",
+        "Tags"
     ];
     const csvRows = [
       headers.join(','), 
@@ -247,11 +258,13 @@ export default function ReportsPage() {
           escapeCSVField(expense.description),
           escapeCSVField(expense.category),
           expense.amount, 
+          escapeCSVField(expense.currency), // Added currency
           escapeCSVField(expense.notes),
           escapeCSVField(expense.groupName),
           escapeCSVField(expense.isRecurring),
           escapeCSVField(expense.recurrence),
           escapeCSVField(expense.recurrenceEndDate),
+          escapeCSVField(expense.tags?.join("; ")), // Join tags with semicolon
         ];
         return row.join(',');
       })
@@ -382,26 +395,36 @@ export default function ReportsPage() {
                 </CardTitle>
                 <CardDescription>Visual breakdown of your expenses for {getPeriodDescriptionForCharts()}.</CardDescription>
             </CardHeader>
-            <CardContent className="h-[350px] w-full">
-                <ChartContainer config={barChartConfig} className="w-full h-full">
-                <BarChart accessibilityLayer data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                    dataKey="category"
-                    tickLine={false}
-                    tickMargin={10}
-                    axisLine={false}
-                    tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
-                    />
-                    <YAxis tickFormatter={(value) => `$${value}`} />
-                    <Tooltip 
-                    cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
-                    content={<ChartTooltipContent indicator="dot" />} 
-                    />
-                    <Legend content={<ChartLegendContent />} />
-                    <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-                </ChartContainer>
+            <CardContent className="w-full">
+                {hasMixedCurrenciesInChartData && (
+                    <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        <AlertDescription>
+                        Chart data includes expenses in multiple currencies summed directly. This may not be arithmetically accurate.
+                        </AlertDescription>
+                    </Alert>
+                )}
+                <div className="h-[350px] w-full">
+                    <ChartContainer config={barChartConfig} className="w-full h-full">
+                    <BarChart accessibilityLayer data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis
+                        dataKey="category"
+                        tickLine={false}
+                        tickMargin={10}
+                        axisLine={false}
+                        tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
+                        />
+                        <YAxis tickFormatter={(value) => `$${value}`} />
+                        <Tooltip 
+                        cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
+                        content={<ChartTooltipContent indicator="dot" />} 
+                        />
+                        <Legend content={<ChartLegendContent />} />
+                        <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                    </ChartContainer>
+                </div>
             </CardContent>
             </Card>
 
@@ -413,68 +436,79 @@ export default function ReportsPage() {
                     </CardTitle>
                     <CardDescription>Proportional spending by category for {getPeriodDescriptionForCharts()}.</CardDescription>
                 </CardHeader>
-                <CardContent className="h-[350px] w-full flex items-center justify-center">
-                   <ChartContainer config={pieChartConfig} className="w-full h-full aspect-square">
-                        <PieChart accessibilityLayer>
-                            <Tooltip
-                                content={({ active, payload }) => {
-                                    if (active && payload && payload.length) {
-                                    const data = payload[0].payload; 
-                                    const percentage = totalSpendingForPeriod > 0 ? (data.total / totalSpendingForPeriod * 100).toFixed(1) : 0;
-                                    return (
-                                        <div className="rounded-lg border bg-background p-2.5 shadow-sm text-sm">
-                                            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5">
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium">{data.category}</span>
-                                                    <span className="text-muted-foreground">
-                                                        Amount: ${data.total.toLocaleString()} ({percentage}%)
-                                                    </span>
+                <CardContent className="w-full">
+                    {hasMixedCurrenciesInChartData && (
+                        <Alert variant="default" className="mb-2 text-xs bg-amber-50 border-amber-200 text-amber-700">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            <AlertDescription>
+                            Chart data includes expenses in multiple currencies summed directly. This may not be arithmetically accurate.
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                    <div className="h-[350px] w-full flex items-center justify-center">
+                       <ChartContainer config={pieChartConfig} className="w-full h-full aspect-square">
+                            <PieChart accessibilityLayer>
+                                <Tooltip
+                                    content={({ active, payload }) => {
+                                        if (active && payload && payload.length) {
+                                        const data = payload[0].payload; 
+                                        const percentage = totalSpendingForPeriod > 0 ? (data.total / totalSpendingForPeriod * 100).toFixed(1) : 0;
+                                        return (
+                                            <div className="rounded-lg border bg-background p-2.5 shadow-sm text-sm">
+                                                <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium">{data.category}</span>
+                                                        <span className="text-muted-foreground">
+                                                            {/* Amount shown is direct sum, currency not specified here as it might be mixed */}
+                                                            Amount: {data.total.toLocaleString()} ({percentage}%)
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    );
-                                    }
-                                    return null;
-                                }}
-                            />
-                            <Pie
-                                data={chartData}
-                                dataKey="total"
-                                nameKey="category"
-                                cx="50%"
-                                cy="50%"
-                                outerRadius={100}
-                                innerRadius={40}
-                                labelLine={false}
-                                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, payload }) => {
-                                    const RADIAN = Math.PI / 180;
-                                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                                    const x = cx + (radius + 15) * Math.cos(-midAngle * RADIAN);
-                                    const y = cy + (radius + 15) * Math.sin(-midAngle * RADIAN);
-                                    const displayPercent = (payload.total / totalSpendingForPeriod * 100);
-                                    if (displayPercent < 5) return null; 
+                                        );
+                                        }
+                                        return null;
+                                    }}
+                                />
+                                <Pie
+                                    data={chartData}
+                                    dataKey="total"
+                                    nameKey="category"
+                                    cx="50%"
+                                    cy="50%"
+                                    outerRadius={100}
+                                    innerRadius={40}
+                                    labelLine={false}
+                                    label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, payload }) => {
+                                        const RADIAN = Math.PI / 180;
+                                        const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                                        const x = cx + (radius + 15) * Math.cos(-midAngle * RADIAN);
+                                        const y = cy + (radius + 15) * Math.sin(-midAngle * RADIAN);
+                                        const displayPercent = (payload.total / totalSpendingForPeriod * 100);
+                                        if (displayPercent < 5) return null; 
 
-                                    return (
-                                    <text
-                                        x={x}
-                                        y={y}
-                                        fill="hsl(var(--foreground))"
-                                        textAnchor={x > cx ? 'start' : 'end'}
-                                        dominantBaseline="central"
-                                        className="text-xs fill-foreground"
-                                    >
-                                        {`${payload.category.length > 8 ? payload.category.substring(0,6)+'..' : payload.category} (${displayPercent.toFixed(0)}%)`}
-                                    </text>
-                                    );
-                                }}
-                            >
-                                {chartData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                ))}
-                            </Pie>
-                             <Legend content={<ChartLegendContent nameKey="category" />} />
-                        </PieChart>
-                    </ChartContainer>
+                                        return (
+                                        <text
+                                            x={x}
+                                            y={y}
+                                            fill="hsl(var(--foreground))"
+                                            textAnchor={x > cx ? 'start' : 'end'}
+                                            dominantBaseline="central"
+                                            className="text-xs fill-foreground"
+                                        >
+                                            {`${payload.category.length > 8 ? payload.category.substring(0,6)+'..' : payload.category} (${displayPercent.toFixed(0)}%)`}
+                                        </text>
+                                        );
+                                    }}
+                                >
+                                    {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                 <Legend content={<ChartLegendContent nameKey="category" />} />
+                            </PieChart>
+                        </ChartContainer>
+                    </div>
                 </CardContent>
             </Card>
         </div>
@@ -520,6 +554,3 @@ export default function ReportsPage() {
     </div>
   );
 }
-
-
-    

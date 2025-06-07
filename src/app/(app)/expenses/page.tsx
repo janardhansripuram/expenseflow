@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PlusCircle, ListFilter, Loader2, Edit, Trash2, Users, RefreshCw, XCircle, TagsIcon } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser, deleteExpense, getGroupsForUser } from "@/lib/firebase/firestore";
-import type { Expense, Group, RecurrenceType } from "@/lib/types";
+import type { Expense, Group, RecurrenceType, CurrencyCode } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -46,7 +46,8 @@ interface FilterCriteria {
   category: string;
   minAmount: string;
   maxAmount: string;
-  groupId: string; // 'all', 'personal', or actual group ID
+  groupId: string; 
+  currency: CurrencyCode | "all";
 }
 
 interface SortCriteria {
@@ -62,6 +63,7 @@ const initialFilterCriteria: FilterCriteria = {
   minAmount: "",
   maxAmount: "",
   groupId: "all",
+  currency: "all",
 };
 
 const initialSortCriteria: SortCriteria = {
@@ -80,6 +82,7 @@ export default function ExpensesPage() {
 
   const [userGroups, setUserGroups] = useState<Group[]>([]);
   const [uniqueCategories, setUniqueCategories] = useState<string[]>([]);
+  const [uniqueCurrencies, setUniqueCurrencies] = useState<CurrencyCode[]>([]);
   
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [currentFilters, setCurrentFilters] = useState<FilterCriteria>(initialFilterCriteria);
@@ -102,6 +105,8 @@ export default function ExpensesPage() {
 
         const categories = Array.from(new Set(userExpenses.map(exp => exp.category))).sort();
         setUniqueCategories(categories);
+        const currencies = Array.from(new Set(userExpenses.map(exp => exp.currency))).sort() as CurrencyCode[];
+        setUniqueCurrencies(currencies);
         
       } catch (error) {
         console.error("Failed to fetch initial data:", error);
@@ -117,6 +122,7 @@ export default function ExpensesPage() {
       setAllExpenses([]);
       setUserGroups([]);
       setUniqueCategories([]);
+      setUniqueCurrencies([]);
       setIsLoading(false);
     }
   }, [user, toast]);
@@ -139,7 +145,9 @@ export default function ExpensesPage() {
         (exp.tags && exp.tags.some(tag => tag.toLowerCase().includes(currentFilters.searchTerm.toLowerCase())))
       );
     }
-
+    if (currentFilters.currency !== "all") {
+      processedExpenses = processedExpenses.filter(exp => exp.currency === currentFilters.currency);
+    }
     if (currentFilters.startDate) {
       const startDate = parseISO(currentFilters.startDate);
       processedExpenses = processedExpenses.filter(exp => parseISO(exp.date) >= startDate);
@@ -148,18 +156,15 @@ export default function ExpensesPage() {
       const endDate = parseISO(currentFilters.endDate);
       processedExpenses = processedExpenses.filter(exp => parseISO(exp.date) <= endDate);
     }
-    
     if (currentFilters.category !== 'all') {
       processedExpenses = processedExpenses.filter(exp => exp.category === currentFilters.category);
     }
-
     if (currentFilters.minAmount) {
       processedExpenses = processedExpenses.filter(exp => exp.amount >= parseFloat(currentFilters.minAmount));
     }
     if (currentFilters.maxAmount) {
       processedExpenses = processedExpenses.filter(exp => exp.amount <= parseFloat(currentFilters.maxAmount));
     }
-
     if (currentFilters.groupId !== 'all') {
       if (currentFilters.groupId === 'personal') {
         processedExpenses = processedExpenses.filter(exp => !exp.groupId);
@@ -235,8 +240,8 @@ export default function ExpensesPage() {
     setTempSort(initialSortCriteria);
   }, []);
   
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  const formatCurrency = (amount: number, currencyCode: CurrencyCode = 'USD') => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
   };
 
   return (
@@ -268,6 +273,18 @@ export default function ExpensesPage() {
                     placeholder="Description or Tag..."
                     className="col-span-3" 
                   />
+                </div>
+                 <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="currency" className="text-right col-span-1">Currency</Label>
+                  <Select value={tempFilters.currency} onValueChange={(value) => setTempFilters(prev => ({...prev, currency: value as CurrencyCode | "all"}))}>
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Any Currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Any Currency</SelectItem>
+                      {uniqueCurrencies.map(curr => <SelectItem key={curr} value={curr}>{curr}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="startDate" className="text-right col-span-1">Start Date</Label>
@@ -433,7 +450,7 @@ export default function ExpensesPage() {
                 {filteredAndSortedExpenses.map((expense) => (
                   <TableRow key={expense.id}>
                     <TableCell className="font-medium max-w-xs truncate" title={expense.description}>{expense.description}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(expense.amount, expense.currency)}</TableCell>
                     <TableCell>{expense.category}</TableCell>
                     <TableCell>{format(parseISO(expense.date), "MMM dd, yyyy")}</TableCell>
                     <TableCell>
@@ -514,7 +531,3 @@ export default function ExpensesPage() {
     </div>
   );
 }
-
-    
-
-    

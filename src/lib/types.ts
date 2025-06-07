@@ -13,12 +13,25 @@ export type NavItem = {
   submenu?: NavItem[];
 };
 
+export const SUPPORTED_CURRENCIES = [
+  { code: "USD", name: "US Dollar", symbol: "$" },
+  { code: "EUR", name: "Euro", symbol: "€" },
+  { code: "GBP", name: "British Pound", symbol: "£" },
+  { code: "JPY", name: "Japanese Yen", symbol: "¥" },
+  { code: "CAD", name: "Canadian Dollar", symbol: "CA$" },
+  { code: "AUD", name: "Australian Dollar", symbol: "A$" },
+  { code: "INR", name: "Indian Rupee", symbol: "₹" },
+] as const;
+
+export type CurrencyCode = typeof SUPPORTED_CURRENCIES[number]['code'];
+
 export type RecurrenceType = "none" | "daily" | "weekly" | "monthly" | "yearly";
 
 export interface Expense {
   id?: string; // Firestore document ID
   description: string;
   amount: number;
+  currency: CurrencyCode; // Added currency field
   category: string;
   date: string; // Stored as YYYY-MM-DD string from form, converted to Firestore Timestamp on save
   notes?: string;
@@ -30,12 +43,13 @@ export interface Expense {
   isRecurring?: boolean;
   recurrence?: RecurrenceType;
   recurrenceEndDate?: string; // ISO string YYYY-MM-DD
-  tags?: string[]; // Added for tags
+  tags?: string[];
 }
 
 export type ExpenseFormData = {
   description: string;
   amount: string; // Input as string, converted to number
+  currency: CurrencyCode; // Added currency field
   category: string;
   date: string; // YYYY-MM-DD
   notes?: string;
@@ -208,3 +222,4 @@ export type BudgetFormData = {
   amount: string;
   period: "monthly";
 }
+

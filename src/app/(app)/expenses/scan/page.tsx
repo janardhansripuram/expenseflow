@@ -20,11 +20,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Save, Camera, UploadCloud, Loader2, RefreshCw, CheckCircle, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Save, Camera, UploadCloud, Loader2, RefreshCw, CheckCircle, AlertTriangle, Landmark } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { addExpense } from "@/lib/firebase/firestore";
-import type { ExpenseFormData } from "@/lib/types";
+import type { ExpenseFormData, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import { extractExpenseFromReceipt, ExtractExpenseOutput } from "@/ai/flows/extract-expense-from-receipt";
 import Image from "next/image";
 import { format } from "date-fns";
@@ -34,6 +35,9 @@ const expenseSchema = z.object({
   description: z.string().min(1, "Description is required"),
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
     message: "Amount must be a positive number",
+  }),
+  currency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), { // Add currency validation
+    message: "Invalid currency selected",
   }),
   category: z.string().min(1, "Category is required"),
   date: z.string().refine(val => !isNaN(new Date(val).valueOf()), {
@@ -66,6 +70,7 @@ export default function ScanReceiptPage() {
     defaultValues: {
       description: "",
       amount: "",
+      currency: "USD", // Default currency
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       merchantName: "",
@@ -77,6 +82,7 @@ export default function ScanReceiptPage() {
     form.reset({
       description: "",
       amount: "",
+      currency: "USD", // Reset currency
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       merchantName: "",
@@ -92,7 +98,7 @@ export default function ScanReceiptPage() {
   }, [form]);
   
   useEffect(() => {
-    return () => { // Cleanup camera stream on component unmount
+    return () => { 
       if (videoRef.current && videoRef.current.srcObject) {
         (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
       }
@@ -105,9 +111,9 @@ export default function ScanReceiptPage() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setSelectedImageUri(reader.result as string);
-        setExtractedData(null); // Clear previous extracted data
-        form.reset(); // Clear form fields
-        setIsCameraMode(false); // Exit camera mode if active
+        setExtractedData(null); 
+        form.reset({ currency: form.getValues("currency") || "USD" }); // Keep selected/default currency
+        setIsCameraMode(false); 
         if (videoRef.current && videoRef.current.srcObject) {
           (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
           videoRef.current.srcObject = null;
@@ -156,14 +162,13 @@ export default function ScanReceiptPage() {
         const dataUri = canvas.toDataURL("image/jpeg");
         setSelectedImageUri(dataUri);
         setExtractedData(null);
-        form.reset();
+        form.reset({ currency: form.getValues("currency") || "USD" }); // Keep selected/default currency
       }
-      // Stop camera stream after capture
       if (video.srcObject) {
         (video.srcObject as MediaStream).getTracks().forEach(track => track.stop());
         video.srcObject = null;
       }
-      setIsCameraMode(false); // Exit camera mode display
+      setIsCameraMode(false); 
     }
   };
 
@@ -178,18 +183,21 @@ export default function ScanReceiptPage() {
     }
 
     setIsExtracting(true);
-    setExtractedData(null); // Clear previous data
-    form.reset(); // Clear form fields before populating with new data
+    setExtractedData(null); 
+    const currentCurrency = form.getValues("currency"); // Preserve currency selection
+    form.reset({ currency: currentCurrency }); 
 
     try {
       const result = await extractExpenseFromReceipt({ photoDataUri: selectedImageUri });
       setExtractedData(result);
       form.setValue("description", result.description || "");
       form.setValue("amount", result.amount ? String(result.amount) : "");
-      form.setValue("category", result.category || "");
+      form.setValue("category", result.category || "other"); // Default to 'other' if not extracted
       form.setValue("date", result.date || format(new Date(), "yyyy-MM-dd"));
       form.setValue("merchantName", result.merchantName || "");
-      toast({ title: "Details Extracted", description: "Review and save the expense.", });
+      // Currency is not extracted by OCR, user needs to confirm/select it.
+      // form.setValue("currency", currentCurrency); // Already set by reset or default
+      toast({ title: "Details Extracted", description: "Review and save the expense. Confirm currency.", });
     } catch (error) {
       console.error("Failed to extract details:", error);
       toast({
@@ -212,6 +220,7 @@ export default function ScanReceiptPage() {
       const expenseDataToSave: ExpenseFormData = {
         description: values.description,
         amount: values.amount,
+        currency: values.currency, // Pass currency
         category: values.category,
         date: values.date,
         notes: `${values.merchantName ? `Merchant: ${values.merchantName}. ` : ''}${values.notes || ''}`.trim(),
@@ -301,7 +310,7 @@ export default function ScanReceiptPage() {
                 src={selectedImageUri} 
                 alt="Selected receipt" 
                 width={400} 
-                height={selectedImageUri.startsWith('data:image') ? 500 : 250} // Adjust height dynamically for better aspect ratio
+                height={selectedImageUri.startsWith('data:image') ? 500 : 250} 
                 className="rounded-md mx-auto max-h-[50vh] w-auto object-contain"
                 data-ai-hint="receipt scan"
               />
@@ -314,12 +323,12 @@ export default function ScanReceiptPage() {
         </Card>
       )}
 
-      {(extractedData || selectedImageUri) && ( // Show form if data extracted or if user wants to manually fill after image selection
+      {(extractedData || selectedImageUri) && ( 
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="font-headline">3. Verify &amp; Save Expense</CardTitle>
             <CardDescription>
-              {extractedData ? "AI has extracted the following details. Please verify and correct if needed." : "Fill in the details manually if OCR extraction is not perfect."}
+              {extractedData ? "AI has extracted the following details. Please verify, select currency, and correct if needed." : "Fill in the details manually if OCR extraction is not perfect."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -351,19 +360,45 @@ export default function ScanReceiptPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" placeholder="e.g., 5.00" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                    control={form.control}
+                    name="amount"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Amount</FormLabel>
+                        <FormControl>
+                            <Input type="number" step="0.01" placeholder="e.g., 5.00" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <FormField
+                    control={form.control}
+                    name="currency"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value} defaultValue="USD">
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select currency" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                            {SUPPORTED_CURRENCIES.map(curr => (
+                                <SelectItem key={curr.code} value={curr.code}>
+                                {curr.code} - {curr.name}
+                                </SelectItem>
+                            ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                </div>
                 <FormField
                   control={form.control}
                   name="category"

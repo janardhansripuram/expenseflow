@@ -2,7 +2,8 @@
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
-import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry, Budget, BudgetFormData, Income, IncomeFormData } from '@/lib/types';
+import type { Expense, ExpenseFormData, UserProfile, FriendRequest, Friend, Group, GroupMemberDetail, SplitExpense, SplitParticipant, SplitMethod, Reminder, ReminderFormData, RecurrenceType, ActivityActionType, GroupActivityLogEntry, Budget, BudgetFormData, Income, IncomeFormData, CurrencyCode } from '@/lib/types';
+import { SUPPORTED_CURRENCIES } from '@/lib/types';
 import { startOfMonth, endOfMonth, formatISO, parseISO } from 'date-fns';
 
 const EXPENSES_COLLECTION = 'expenses';
@@ -63,6 +64,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
       userId,
       description: expenseData.description,
       amount: parseFloat(expenseData.amount),
+      currency: expenseData.currency || 'USD', // Default to USD if not provided
       category: expenseData.category,
       date: Timestamp.fromDate(parseISO(expenseData.date)),
       notes: expenseData.notes || '',
@@ -89,7 +91,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
         actorId: actorProfile.uid,
         actorDisplayName: actorProfile.displayName || actorProfile.email,
         actionType: ActivityActionType.EXPENSE_ADDED_TO_GROUP,
-        details: `added expense "${expenseData.description}" (${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(parseFloat(expenseData.amount))}) to the group`,
+        details: `added expense "${expenseData.description}" (${new Intl.NumberFormat('en-US', { style: 'currency', currency: expenseData.currency || 'USD' }).format(parseFloat(expenseData.amount))}) to the group`,
         relatedExpenseId: docRef.id,
         relatedExpenseName: expenseData.description,
       });
@@ -107,6 +109,7 @@ function mapExpenseDocumentToExpenseObject(doc: any): Expense {
     id: doc.id,
     description: data.description,
     amount: data.amount,
+    currency: data.currency || 'USD', // Default to USD if currency is missing
     category: data.category,
     date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
     notes: data.notes,
@@ -118,7 +121,7 @@ function mapExpenseDocumentToExpenseObject(doc: any): Expense {
     isRecurring: data.isRecurring || false,
     recurrence: data.recurrence || 'none',
     recurrenceEndDate: data.recurrenceEndDate ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] : undefined,
-    tags: data.tags || [], // Ensure tags is always an array
+    tags: data.tags || [],
   };
 }
 
@@ -178,6 +181,7 @@ export async function updateExpense(expenseId: string, expenseData: Partial<Expe
 
     if (expenseData.description !== undefined) updateData.description = expenseData.description;
     if (expenseData.amount !== undefined) updateData.amount = parseFloat(expenseData.amount);
+    if (expenseData.currency !== undefined) updateData.currency = expenseData.currency;
     if (expenseData.category !== undefined) updateData.category = expenseData.category;
     if (expenseData.date !== undefined) updateData.date = Timestamp.fromDate(parseISO(expenseData.date));
     if (expenseData.notes !== undefined) updateData.notes = expenseData.notes;
@@ -1292,3 +1296,4 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
+

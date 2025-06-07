@@ -20,11 +20,12 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Save, Paperclip, Loader2, Users, CalendarDays, RefreshCcw, TagsIcon } from "lucide-react";
+import { ArrowLeft, Save, Paperclip, Loader2, Users, CalendarDays, RefreshCcw, TagsIcon, Landmark } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { addExpense, getGroupsForUser } from "@/lib/firebase/firestore";
-import type { ExpenseFormData, Group, RecurrenceType } from "@/lib/types";
+import type { ExpenseFormData, Group, RecurrenceType, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 import React, { useEffect, useState } from "react";
 
@@ -43,6 +44,9 @@ const expenseSchema = z.object({
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
     message: "Amount must be a positive number",
   }),
+  currency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), {
+    message: "Invalid currency selected",
+  }),
   category: z.string().min(1, "Category is required"),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
@@ -52,7 +56,7 @@ const expenseSchema = z.object({
   recurrenceEndDate: z.string().optional().refine(val => !val || !isNaN(new Date(val).valueOf()), {
     message: "Invalid date format for recurrence end date"
   }),
-  tags: z.string().optional(), // Comma-separated string
+  tags: z.string().optional(),
 }).superRefine((data, ctx) => {
   if (data.isRecurring) {
     if (!data.recurrence || data.recurrence === "none") {
@@ -101,6 +105,7 @@ export default function AddExpensePage() {
     defaultValues: {
       description: "",
       amount: "",
+      currency: "USD",
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
@@ -178,9 +183,7 @@ export default function AddExpensePage() {
       dataToSave.recurrence = "none";
       dataToSave.recurrenceEndDate = undefined;
     } else {
-      // Ensure recurrence is not 'none' if isRecurring is true (Zod should catch this, but defensive)
-      if (values.recurrence === "none") dataToSave.recurrence = "monthly"; // Default or handle error
-      // Ensure recurrenceEndDate is undefined if not provided or if recurrence is none
+      if (values.recurrence === "none") dataToSave.recurrence = "monthly"; 
       if (!values.recurrenceEndDate || values.recurrence === "none") {
         dataToSave.recurrenceEndDate = undefined;
       }
@@ -196,6 +199,7 @@ export default function AddExpensePage() {
       form.reset({
           description: "",
           amount: "",
+          currency: "USD",
           category: "",
           date: format(new Date(), "yyyy-MM-dd"),
           notes: "",
@@ -241,8 +245,7 @@ export default function AddExpensePage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
+              <FormField
                   control={form.control}
                   name="description"
                   render={({ field }) => (
@@ -255,6 +258,7 @@ export default function AddExpensePage() {
                     </FormItem>
                   )}
                 />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
                   name="amount"
@@ -264,6 +268,30 @@ export default function AddExpensePage() {
                       <FormControl>
                         <Input type="number" step="0.01" placeholder="e.g., 5.00" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="currency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select currency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SUPPORTED_CURRENCIES.map(curr => (
+                            <SelectItem key={curr.code} value={curr.code}>
+                              {curr.code} - {curr.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -421,7 +449,7 @@ export default function AddExpensePage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {recurrenceOptions.filter(opt => opt.value !== "none").map(opt => ( // Exclude "None" when isRecurring is true
+                              {recurrenceOptions.filter(opt => opt.value !== "none").map(opt => ( 
                                 <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                               ))}
                             </SelectContent>
@@ -444,7 +472,7 @@ export default function AddExpensePage() {
                               type="date"
                               {...field}
                               disabled={!isRecurringWatch || recurrenceWatch === "none"}
-                              min={form.getValues("date")} // End date cannot be before expense date
+                              min={form.getValues("date")} 
                             />
                           </FormControl>
                           <FormDescription>Leave blank if it recurs indefinitely.</FormDescription>

@@ -20,11 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Save, Loader2, Users, CalendarDays, RefreshCcw, TagsIcon } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Users, CalendarDays, RefreshCcw, TagsIcon, Landmark } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpenseById, updateExpense, getGroupsForUser } from "@/lib/firebase/firestore";
-import type { Expense, ExpenseFormData, Group, RecurrenceType } from "@/lib/types";
+import type { Expense, ExpenseFormData, Group, RecurrenceType, CurrencyCode } from "@/lib/types";
+import { SUPPORTED_CURRENCIES } from "@/lib/types";
 import { format, parseISO } from "date-fns";
 
 const PERSONAL_GROUP_VALUE = "___PERSONAL___";
@@ -42,6 +43,9 @@ const expenseSchema = z.object({
   amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
     message: "Amount must be a positive number",
   }),
+  currency: z.custom<CurrencyCode>((val) => SUPPORTED_CURRENCIES.some(c => c.code === val), {
+    message: "Invalid currency selected",
+  }),
   category: z.string().min(1, "Category is required"),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
@@ -51,7 +55,7 @@ const expenseSchema = z.object({
   recurrenceEndDate: z.string().optional().refine(val => !val || !isNaN(new Date(val).valueOf()), {
     message: "Invalid date format for recurrence end date"
   }),
-  tags: z.string().optional(), // Comma-separated string
+  tags: z.string().optional(), 
 }).superRefine((data, ctx) => {
   if (data.isRecurring) {
     if (!data.recurrence || data.recurrence === "none") {
@@ -103,6 +107,7 @@ export default function EditExpensePage() {
     defaultValues: {
       description: "",
       amount: "",
+      currency: "USD",
       category: "",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
@@ -139,6 +144,7 @@ export default function EditExpensePage() {
         form.reset({
           description: expense.description,
           amount: String(expense.amount),
+          currency: expense.currency || "USD",
           category: expense.category,
           date: expense.date,
           notes: expense.notes || "",
@@ -146,7 +152,7 @@ export default function EditExpensePage() {
           isRecurring: expense.isRecurring || false,
           recurrence: expense.recurrence || "none",
           recurrenceEndDate: expense.recurrenceEndDate || "",
-          tags: expense.tags ? expense.tags.join(", ") : "", // Join tags array to string for input
+          tags: expense.tags ? expense.tags.join(", ") : "", 
         });
       } else {
         toast({ variant: "destructive", title: "Not Found", description: "Expense not found." });
@@ -186,9 +192,9 @@ export default function EditExpensePage() {
 
     if (!values.isRecurring) {
       dataToSave.recurrence = "none";
-      dataToSave.recurrenceEndDate = undefined; // Will be saved as null or removed by firestore.ts
+      dataToSave.recurrenceEndDate = undefined; 
     } else {
-       if (values.recurrence === "none") dataToSave.recurrence = "monthly"; // Default if somehow 'none' with isRecurring true
+       if (values.recurrence === "none") dataToSave.recurrence = "monthly"; 
        if (!values.recurrenceEndDate || values.recurrence === "none") {
         dataToSave.recurrenceEndDate = undefined;
       }
@@ -245,8 +251,7 @@ export default function EditExpensePage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
+             <FormField
                   control={form.control}
                   name="description"
                   render={({ field }) => (
@@ -259,6 +264,7 @@ export default function EditExpensePage() {
                     </FormItem>
                   )}
                 />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
                   name="amount"
@@ -268,6 +274,30 @@ export default function EditExpensePage() {
                       <FormControl>
                         <Input type="number" step="0.01" placeholder="e.g., 5.00" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <FormField
+                  control={form.control}
+                  name="currency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select currency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SUPPORTED_CURRENCIES.map(curr => (
+                            <SelectItem key={curr.code} value={curr.code}>
+                              {curr.code} - {curr.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
