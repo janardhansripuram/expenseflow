@@ -5,13 +5,13 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText } from "lucide-react";
+import { Loader2, BarChart3, Lightbulb, TrendingUp, FileText, PieChartIcon } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getExpensesByUser } from "@/lib/firebase/firestore";
 import type { Expense } from "@/lib/types";
 import { summarizeSpending, SummarizeSpendingOutput } from "@/ai/flows/summarize-spending";
 import { useToast } from "@/hooks/use-toast";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { subDays, formatISO, startOfMonth, endOfMonth } from 'date-fns';
 
@@ -21,6 +21,17 @@ interface ChartDataItem {
   category: string;
   total: number;
 }
+
+const PIE_COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  "hsl(var(--chart-1) / 0.7)",
+  "hsl(var(--chart-2) / 0.7)",
+];
+
 
 export default function ReportsPage() {
   const { user } = useAuth();
@@ -126,16 +137,32 @@ export default function ReportsPage() {
     }, {} as Record<string, number>);
 
     return Object.entries(dataByCat)
-      .map(([category, total]) => ({ category, total }))
-      .sort((a, b) => b.total - a.total); // Sort for better visualization
+      .map(([category, total]) => ({ category, total: parseFloat(total.toFixed(2)) }))
+      .sort((a, b) => b.total - a.total);
   }, [filteredExpenses]);
 
-  const chartConfig = {
+  const totalSpendingForPeriod = useMemo(() => {
+    return chartData.reduce((sum, item) => sum + item.total, 0);
+  }, [chartData]);
+
+  const barChartConfig = {
     total: {
       label: "Total Spent",
       color: "hsl(var(--chart-1))",
     },
   } satisfies Record<string, any>;
+
+  // For Pie chart legend and tooltip, map categories to chart colors
+  const pieChartConfig = useMemo(() => {
+    const config: Record<string, { label: string; color: string }> = {};
+    chartData.forEach((item, index) => {
+      config[item.category] = {
+        label: item.category,
+        color: PIE_COLORS[index % PIE_COLORS.length],
+      };
+    });
+    return config;
+  }, [chartData]);
 
 
   return (
@@ -186,36 +213,111 @@ export default function ReportsPage() {
       )}
 
       {!isLoadingExpenses && filteredExpenses.length > 0 && (
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle className="font-headline flex items-center">
-              <BarChart3 className="mr-2 h-6 w-6 text-primary" />
-              Spending by Category
-            </CardTitle>
-            <CardDescription>Visual breakdown of your expenses for {selectedPeriod === 'allTime' ? 'all time' : `the ${selectedPeriod.replace('last', 'last ').replace('days', ' days').replace('currentMonth', 'current month')}`}.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[350px] w-full">
-             <ChartContainer config={chartConfig} className="w-full h-full">
-              <BarChart accessibilityLayer data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="category"
-                  tickLine={false}
-                  tickMargin={10}
-                  axisLine={false}
-                  tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
-                />
-                <YAxis tickFormatter={(value) => `$${value}`} />
-                <Tooltip 
-                  cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
-                  content={<ChartTooltipContent indicator="dot" />} 
-                />
-                <Legend content={<ChartLegendContent />} />
-                <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
+        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+            <Card className="shadow-lg">
+            <CardHeader>
+                <CardTitle className="font-headline flex items-center">
+                <BarChart3 className="mr-2 h-6 w-6 text-primary" />
+                Spending by Category
+                </CardTitle>
+                <CardDescription>Visual breakdown of your expenses for {selectedPeriod === 'allTime' ? 'all time' : `the ${selectedPeriod.replace('last', 'last ').replace('days', ' days').replace('currentMonth', 'current month')}`}.</CardDescription>
+            </CardHeader>
+            <CardContent className="h-[350px] w-full">
+                <ChartContainer config={barChartConfig} className="w-full h-full">
+                <BarChart accessibilityLayer data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                    dataKey="category"
+                    tickLine={false}
+                    tickMargin={10}
+                    axisLine={false}
+                    tickFormatter={(value) => value.length > 10 ? `${value.substring(0,10)}...` : value}
+                    />
+                    <YAxis tickFormatter={(value) => `$${value}`} />
+                    <Tooltip 
+                    cursor={{fill: 'hsl(var(--muted))', radius: 'var(--radius)'}}
+                    content={<ChartTooltipContent indicator="dot" />} 
+                    />
+                    <Legend content={<ChartLegendContent />} />
+                    <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+                </ChartContainer>
+            </CardContent>
+            </Card>
+
+            <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle className="font-headline flex items-center">
+                        <PieChartIcon className="mr-2 h-6 w-6 text-primary" />
+                        Category Distribution
+                    </CardTitle>
+                    <CardDescription>Proportional spending by category for {selectedPeriod === 'allTime' ? 'all time' : `the ${selectedPeriod.replace('last', 'last ').replace('days', ' days').replace('currentMonth', 'current month')}`}.</CardDescription>
+                </CardHeader>
+                <CardContent className="h-[350px] w-full flex items-center justify-center">
+                   <ChartContainer config={pieChartConfig} className="w-full h-full aspect-square">
+                        <PieChart accessibilityLayer>
+                            <Tooltip
+                                content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                    const data = payload[0].payload; // The data for the slice
+                                    const percentage = totalSpendingForPeriod > 0 ? (data.total / totalSpendingForPeriod * 100).toFixed(1) : 0;
+                                    return (
+                                        <div className="rounded-lg border bg-background p-2.5 shadow-sm text-sm">
+                                            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5">
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium">{data.category}</span>
+                                                    <span className="text-muted-foreground">
+                                                        Amount: ${data.total.toLocaleString()} ({percentage}%)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                    }
+                                    return null;
+                                }}
+                            />
+                            <Pie
+                                data={chartData}
+                                dataKey="total"
+                                nameKey="category"
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={100}
+                                innerRadius={40}
+                                labelLine={false}
+                                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, payload }) => {
+                                    const RADIAN = Math.PI / 180;
+                                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                                    const x = cx + (radius + 15) * Math.cos(-midAngle * RADIAN);
+                                    const y = cy + (radius + 15) * Math.sin(-midAngle * RADIAN);
+                                    const displayPercent = (payload.total / totalSpendingForPeriod * 100);
+                                    if (displayPercent < 5) return null; // Hide label for very small slices
+
+                                    return (
+                                    <text
+                                        x={x}
+                                        y={y}
+                                        fill="hsl(var(--foreground))"
+                                        textAnchor={x > cx ? 'start' : 'end'}
+                                        dominantBaseline="central"
+                                        className="text-xs fill-foreground"
+                                    >
+                                        {`${payload.category.length > 8 ? payload.category.substring(0,6)+'..' : payload.category} (${displayPercent.toFixed(0)}%)`}
+                                    </text>
+                                    );
+                                }}
+                            >
+                                {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                ))}
+                            </Pie>
+                             <Legend content={<ChartLegendContent nameKey="category" />} />
+                        </PieChart>
+                    </ChartContainer>
+                </CardContent>
+            </Card>
+        </div>
       )}
 
       {isLoadingSummary && (
@@ -259,3 +361,5 @@ export default function ReportsPage() {
   );
 }
 
+
+    
