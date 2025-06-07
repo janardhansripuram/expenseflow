@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -11,6 +12,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar, // Import useSidebar
 } from '@/components/ui/sidebar';
 import { ChevronDown } from 'lucide-react';
 import React from 'react';
@@ -23,6 +25,7 @@ interface SidebarItemsProps {
 export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
   const pathname = usePathname();
   const [openSubmenus, setOpenSubmenus] = React.useState<Record<string, boolean>>({});
+  const { state, isMobile } = useSidebar(); // Get state and isMobile from context
 
   const toggleSubmenu = (title: string) => {
     setOpenSubmenus(prev => ({ ...prev, [title]: !prev[title] }));
@@ -49,6 +52,8 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
                   isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
                 )}
                 aria-expanded={isSubmenuOpen}
+                // Add tooltip for parent menu items when collapsed
+                tooltip={state === "collapsed" && !isMobile ? item.title : undefined}
               >
                 <div className="flex items-center gap-2">
                   <item.icon className="h-5 w-5" />
@@ -62,7 +67,7 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
                     const isSubActive = pathname.startsWith(subItem.href);
                     return (
                       <SidebarMenuSubItem key={subItem.title}>
-                        <Link href={subItem.href} legacyBehavior passHref>
+                        <Link href={subItem.href} asChild>
                           <SidebarMenuSubButton
                             asChild
                             isActive={isSubActive}
@@ -86,13 +91,14 @@ export function SidebarItems({ items, onLinkClick }: SidebarItemsProps) {
 
         return (
           <SidebarMenuItem key={item.title}>
-            <Link href={item.href} legacyBehavior passHref>
+            <Link href={item.href} asChild>
               <SidebarMenuButton
                 asChild
                 isActive={isActive}
                 onClick={onLinkClick}
                 className={cn(isActive && "bg-sidebar-accent text-sidebar-accent-foreground")}
                 disabled={item.disabled}
+                tooltip={state === "collapsed" && !isMobile ? item.title : undefined}
               >
                 <a> {/* Link content is now inside <a> tag */}
                   <item.icon className="h-5 w-5" />
