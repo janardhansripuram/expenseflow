@@ -4,12 +4,13 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, Landmark, Users, ArrowRight, ArrowLeft } from "lucide-react";
+import { Loader2, Landmark, Users, ArrowRight, ArrowLeft, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getFriends, getUserProfile, getSplitExpensesForUser } from "@/lib/firebase/firestore";
-import type { Friend, UserProfile, SplitExpense } from "@/lib/types";
+import type { Friend, UserProfile, SplitExpense, CurrencyCode } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; // Added UIDescription for consistency
 
 interface DebtSummary {
   friendId: string;
@@ -17,6 +18,7 @@ interface DebtSummary {
   friendEmail: string;
   friendAvatarText: string;
   netAmount: number; // Positive: friend owes user, Negative: user owes friend
+  currency: CurrencyCode;
 }
 
 export default function DebtsPage() {
@@ -63,50 +65,62 @@ export default function DebtsPage() {
     }
 
     const friendMap = new Map(friends.map(f => [f.uid, f]));
-    const netDebts: Record<string, number> = {}; // friendUid -> amount
+    const netDebts: Record<string, Partial<Record<CurrencyCode, number>>> = {}; // friendUid -> { currency -> amount }
 
     personalSplits.forEach(split => {
-      if (split.paidBy === currentUserProfile.uid) {
+      const currency = split.currency;
+      if (split.paidBy === currentUserProfile.uid) { // User paid
         split.participants.forEach(p => {
           if (p.userId !== currentUserProfile.uid && !p.isSettled) {
-            netDebts[p.userId] = (netDebts[p.userId] || 0) + p.amountOwed; 
+            if (!netDebts[p.userId]) netDebts[p.userId] = {};
+            netDebts[p.userId][currency] = (netDebts[p.userId][currency] || 0) + p.amountOwed; 
           }
         });
-      } else {
+      } else { // Someone else paid, user might owe
         const currentUserParticipant = split.participants.find(p => p.userId === currentUserProfile.uid);
         if (currentUserParticipant && !currentUserParticipant.isSettled) {
-          netDebts[split.paidBy] = (netDebts[split.paidBy] || 0) - currentUserParticipant.amountOwed; 
+          if (!netDebts[split.paidBy]) netDebts[split.paidBy] = {};
+          netDebts[split.paidBy][currency] = (netDebts[split.paidBy][currency] || 0) - currentUserParticipant.amountOwed;
         }
       }
     });
+    
+    const summaries: DebtSummary[] = [];
+    Object.entries(netDebts).forEach(([friendId, currencyAmounts]) => {
+      const friend = friendMap.get(friendId);
+      if (!friend) return;
 
-    const summaries: DebtSummary[] = Object.entries(netDebts)
-      .map(([friendId, amount]) => {
-        if (Math.abs(amount) < 0.01) return null; 
-        const friend = friendMap.get(friendId);
-        if (!friend) return null; 
+      Object.entries(currencyAmounts).forEach(([currency, amount]) => {
+        if (Math.abs(amount) < 0.01) return;
 
-        const initials = friend.displayName ? 
-          (friend.displayName.split(' ').length > 1 ? `${friend.displayName.split(' ')[0][0]}${friend.displayName.split(' ')[1][0]}` : friend.displayName.substring(0,2))
+        const initials = friend.displayName 
+          ? (friend.displayName.split(' ').length > 1 ? `${friend.displayName.split(' ')[0][0]}${friend.displayName.split(' ')[1][0]}` : friend.displayName.substring(0,2))
           : friend.email.substring(0,2);
 
-        return {
+        summaries.push({
           friendId,
           friendDisplayName: friend.displayName || friend.email,
           friendEmail: friend.email,
           friendAvatarText: initials.toUpperCase(),
           netAmount: amount,
-        };
-      })
-      .filter(summary => summary !== null) as DebtSummary[];
+          currency: currency as CurrencyCode,
+        });
+      });
+    });
       
-    return summaries.sort((a,b) => Math.abs(b.netAmount) - Math.abs(a.netAmount));
+    return summaries.sort((a,b) => a.currency.localeCompare(b.currency) || Math.abs(b.netAmount) - Math.abs(a.netAmount));
 
   }, [currentUserProfile, friends, personalSplits]);
   
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  const formatCurrencyDisplay = (amount: number, currencyCode: CurrencyCode) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
   };
+
+  const hasMixedCurrenciesInDebts = useMemo(() => {
+    if (debtSummaries.length <= 1) return false;
+    const currencies = new Set(debtSummaries.map(d => d.currency));
+    return currencies.size > 1;
+  }, [debtSummaries]);
 
   if (isLoading) {
     return (
@@ -133,10 +147,18 @@ export default function DebtsPage() {
             Debt Overview
           </CardTitle>
           <CardDescription>
-            This view summarizes net balances between you and your friends based on unsettled personal splits.
+            This view summarizes net balances between you and your friends based on unsettled personal splits, broken down by currency.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {hasMixedCurrenciesInDebts && (
+            <Alert variant="default" className="mb-4 text-xs bg-amber-50 border-amber-200 text-amber-700">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <UIDescription className="pl-1">
+                Debts involve multiple currencies. Each line item represents a debt in a specific currency. No automatic currency conversion is applied.
+              </UIDescription>
+            </Alert>
+          )}
           {debtSummaries.length === 0 ? (
             <div className="text-center py-10">
                 <Users className="mx-auto h-12 w-12 text-muted-foreground" />
@@ -146,7 +168,7 @@ export default function DebtsPage() {
           ) : (
             <div className="space-y-4">
               {debtSummaries.map(summary => (
-                <Card key={summary.friendId} className="shadow-sm hover:shadow-md transition-shadow">
+                <Card key={`${summary.friendId}-${summary.currency}`} className="shadow-sm hover:shadow-md transition-shadow">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between gap-4">
                       {/* Person on the left */}
@@ -165,7 +187,7 @@ export default function DebtsPage() {
                       <div className="flex flex-col items-center text-center">
                         {summary.netAmount > 0 ? <ArrowRight className="h-5 w-5 text-green-500" /> : <ArrowLeft className="h-5 w-5 text-red-500" />}
                         <Badge variant={summary.netAmount > 0 ? "default" : "destructive"} className={summary.netAmount > 0 ? "bg-green-600 hover:bg-green-700 text-white" : ""}>
-                           {formatCurrency(Math.abs(summary.netAmount))}
+                           {formatCurrencyDisplay(Math.abs(summary.netAmount), summary.currency)}
                         </Badge>
                         <p className="text-xs mt-1 text-muted-foreground">
                             {summary.netAmount > 0 ? `owes ${currentUserProfile?.displayName || "You"}` : `owes ${summary.friendDisplayName}`}
@@ -179,7 +201,7 @@ export default function DebtsPage() {
                             <p className="text-xs text-muted-foreground truncate">{summary.netAmount < 0 ? summary.friendEmail : currentUserProfile?.email}</p>
                         </div>
                         <Avatar className="h-10 w-10">
-                           <AvatarImage src="https://placehold.co/100x100.png" alt={summary.netAmount < 0 ? summary.friendDisplayName : (currentUserProfile?.displayName || "You")} data-ai-hint="person avatar" />
+                           <AvatarImage src="https://placehold.co/100x100.png" alt={summary.netAmount < 0 ? summary.friendDisplayName : (currentUserProfile?.displayName || "You")} data-ai-hint="person avatar"/>
                            <AvatarFallback>{summary.netAmount < 0 ? summary.friendAvatarText : (currentUserProfile?.displayName?.substring(0,2).toUpperCase() || 'ME')}</AvatarFallback>
                         </Avatar>
                       </div>
@@ -194,3 +216,4 @@ export default function DebtsPage() {
     </div>
   );
 }
+
