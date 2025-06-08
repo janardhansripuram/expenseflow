@@ -96,11 +96,11 @@ export default function EditExpensePage() {
   const expenseId = params.expenseId as string;
 
   const { toast } = useToast();
-  const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
+  const { authUser, loading: authLoading } = useAuth();
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Renamed for clarity
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userGroups, setUserGroups] = useState<Group[]>([]);
-  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true); // Keep this if group loading is distinct
 
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseSchema),
@@ -123,23 +123,29 @@ export default function EditExpensePage() {
   const recurrenceWatch = form.watch("recurrence");
 
   const fetchExpenseData = useCallback(async () => {
-    if (!user || !expenseId) return;
-    setIsLoading(true);
+    if (!authUser || !expenseId) {
+        toast({ variant: "destructive", title: "Error", description: "User not authenticated or expense ID missing." });
+        setIsLoadingPage(false); // Ensure loader stops
+        router.push("/expenses");
+        return;
+    }
+    setIsLoadingPage(true); // Start loading for this specific fetch
     setIsLoadingGroups(true);
 
     try {
       const expenseDataPromise = getExpenseById(expenseId);
-      const groupsPromise = getGroupsForUser(user.uid);
+      const groupsPromise = getGroupsForUser(authUser.uid);
 
       const [expense, groups] = await Promise.all([expenseDataPromise, groupsPromise]);
 
       setUserGroups(groups || []);
+      setIsLoadingGroups(false);
 
       if (expense) {
-        if (expense.userId !== user.uid) {
+        if (expense.userId !== authUser.uid) {
           toast({ variant: "destructive", title: "Unauthorized", description: "You do not have permission to edit this expense." });
           router.push("/expenses");
-          return;
+          return; // Explicit return
         }
         form.reset({
           description: expense.description,
@@ -157,22 +163,43 @@ export default function EditExpensePage() {
       } else {
         toast({ variant: "destructive", title: "Not Found", description: "Expense not found." });
         router.push("/expenses");
+        return; // Explicit return
       }
     } catch (error) {
       console.error("Failed to fetch expense or groups:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load expense details." });
+      router.push("/expenses"); // Navigate away on error
     } finally {
-      setIsLoading(false);
-      setIsLoadingGroups(false);
+      setIsLoadingPage(false); // Stop loading after fetch attempt
     }
-  }, [user, expenseId, form, router, toast]);
+  }, [authUser, expenseId, form, router, toast]);
 
   useEffect(() => {
-    fetchExpenseData();
-  }, [fetchExpenseData]);
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
+    }
+    if (authUser && expenseId) {
+      fetchExpenseData();
+    } else if (!authUser && !authLoading) {
+      // Not logged in, auth finished loading
+      toast({ variant: "destructive", title: "Authentication Required", description: "Please log in to edit expenses." });
+      router.push("/login");
+      setIsLoadingPage(false);
+    } else if (!expenseId && !authLoading) {
+      // No expenseId, probably a bad URL
+      toast({ variant: "destructive", title: "Error", description: "Expense ID missing." });
+      router.push("/expenses");
+      setIsLoadingPage(false);
+    }
+  }, [authLoading, authUser, expenseId, fetchExpenseData, router, toast]);
+
 
   async function onSubmit(values: ExpenseFormData) {
-    if (!user || !expenseId) return;
+    if (!authUser || !expenseId) {
+        toast({ variant: "destructive", title: "Error", description: "User not authenticated or expense ID missing." });
+        return;
+    }
     setIsSubmitting(true);
 
     let dataToSave: Partial<ExpenseFormData> = { ...values };
@@ -182,11 +209,11 @@ export default function EditExpensePage() {
       if (selectedGroup) {
         dataToSave.groupName = selectedGroup.name;
       } else {
-        dataToSave.groupId = null;
-        dataToSave.groupName = null;
+        dataToSave.groupId = undefined; // Use undefined instead of null to omit if not changed
+        dataToSave.groupName = undefined;
       }
     } else {
-      dataToSave.groupId = null;
+      dataToSave.groupId = null; // Explicitly set to null for personal
       dataToSave.groupName = null;
     }
 
@@ -199,6 +226,14 @@ export default function EditExpensePage() {
         dataToSave.recurrenceEndDate = undefined;
       }
     }
+    
+    // Remove undefined fields to avoid overwriting with undefined in Firestore update
+    Object.keys(dataToSave).forEach(key => {
+        const typedKey = key as keyof Partial<ExpenseFormData>;
+        if (dataToSave[typedKey] === undefined) {
+            delete dataToSave[typedKey];
+        }
+    });
 
     try {
       await updateExpense(expenseId, dataToSave);
@@ -219,7 +254,7 @@ export default function EditExpensePage() {
     }
   }
 
-  if (isLoading) {
+  if (isLoadingPage || authLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -227,6 +262,17 @@ export default function EditExpensePage() {
       </div>
     );
   }
+  
+  if (!authUser && !authLoading) {
+    // This case should ideally be caught by the useEffect redirecting to login,
+    // but as a fallback:
+    return (
+      <div className="flex justify-center items-center h-64">
+        <p className="text-destructive">You must be logged in to view this page.</p>
+      </div>
+    );
+  }
+
 
   return (
     <div className="space-y-6">
@@ -493,7 +539,7 @@ export default function EditExpensePage() {
                   <Button variant="outline" asChild type="button">
                       <Link href="/expenses">Cancel</Link>
                   </Button>
-                  <Button type="submit" disabled={isSubmitting}>
+                  <Button type="submit" disabled={isSubmitting || authLoading}>
                       {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                       Save Changes
                   </Button>
