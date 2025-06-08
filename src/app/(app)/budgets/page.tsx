@@ -15,7 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useForm } from "react-hook-form";
@@ -89,7 +89,7 @@ export default function BudgetsPage() {
       setIsLoading(false);
       return;
     }
-    setIsLoading(true); // Set loading true at the start of actual data fetching
+    setIsLoading(true); 
 
     try {
       let userBudgets: Budget[] = [];
@@ -113,7 +113,7 @@ export default function BudgetsPage() {
         setExpenses([]);
       }
 
-    } catch (error) { // General catch for unexpected errors in the overall process
+    } catch (error) { 
       console.error("General error in fetchBudgetData:", error);
       toast({ variant: "destructive", title: "Loading Error", description: "An unexpected error occurred while loading budget page data." });
       setBudgets([]);
@@ -129,7 +129,6 @@ export default function BudgetsPage() {
       return;
     }
     if (authUser) {
-      // isLoading is set to true inside fetchBudgetData when it actually starts
       fetchBudgetData();
     } else {
       setBudgets([]);
@@ -223,7 +222,7 @@ export default function BudgetsPage() {
   };
 
   const formatCurrencyDisplay = (amount: number, currencyCode: CurrencyCode) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(amount);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
   };
 
   const getCategoryDisplayName = (categoryValue: string) => {
