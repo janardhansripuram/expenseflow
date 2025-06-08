@@ -34,9 +34,9 @@ import { formatDistanceToNow } from 'date-fns';
 
 
 export default function FriendsPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [currentUserProfileForPage, setCurrentUserProfileForPage] = useState<UserProfile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([]);
   const [friendEmail, setFriendEmail] = useState("");
@@ -49,16 +49,31 @@ export default function FriendsPage() {
 
 
   const fetchInitialData = useCallback(async () => {
-    if (!user) return;
+    if (!authUser || !authUser.uid) {
+      console.warn("[FriendsPage.fetchInitialData] Attempted fetch without authUser or authUser.uid");
+      setFriends([]);
+      setIncomingRequests([]);
+      setCurrentUserProfileForPage(null);
+      setIsLoadingFriends(false);
+      setIsLoadingRequests(false);
+      return;
+    }
+    
+    // Use userProfile from context if available, otherwise fetch for this page
+    // This is primarily for display name of current user when sending requests
+    if (userProfile) {
+        setCurrentUserProfileForPage(userProfile);
+    } else if (!currentUserProfileForPage) { // Only fetch if not already set and not in context
+        const fetchedProfile = await getUserProfile(authUser.uid);
+        setCurrentUserProfileForPage(fetchedProfile);
+    }
+
     setIsLoadingFriends(true);
     setIsLoadingRequests(true);
     try {
-      const profile = await getUserProfile(user.uid); 
-      setCurrentUserProfile(profile);
-
       const [userFriendsData, userRequestsData] = await Promise.all([
-        getFriends(user.uid),
-        getIncomingFriendRequests(user.uid),
+        getFriends(authUser.uid),
+        getIncomingFriendRequests(authUser.uid),
       ]);
 
       const serializedFriends = userFriendsData.map(f => ({
@@ -81,22 +96,39 @@ export default function FriendsPage() {
       setIsLoadingFriends(false);
       setIsLoadingRequests(false);
     }
-  }, [user, toast]);
+  }, [authUser, userProfile, toast, currentUserProfileForPage]); // currentUserProfileForPage added to ensure it's stable if fetched
 
   useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+    if (authLoading) {
+      setIsLoadingFriends(true);
+      setIsLoadingRequests(true);
+      return;
+    }
+    if (authUser) {
+      fetchInitialData();
+    } else {
+      // No user, clear data and stop loading
+      setFriends([]);
+      setIncomingRequests([]);
+      setCurrentUserProfileForPage(null);
+      setIsLoadingFriends(false);
+      setIsLoadingRequests(false);
+    }
+  }, [authLoading, authUser, fetchInitialData]);
 
   const handleSendFriendRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !currentUserProfile || !friendEmail.trim()) return;
+    const profileToUse = userProfile || currentUserProfileForPage;
+    if (!authUser || !profileToUse || !friendEmail.trim()) {
+         toast({ variant: "destructive", title: "Error", description: "User profile not loaded or email empty." });
+        return;
+    }
     setIsSendingRequest(true);
     try {
-      // fromUserDisplayName can be undefined, which is fine for sendFriendRequest
-      const result = await sendFriendRequest(user.uid, currentUserProfile.email, currentUserProfile.displayName, friendEmail);
+      const result = await sendFriendRequest(authUser.uid, profileToUse.email, profileToUse.displayName, friendEmail);
       if (result.success) {
         toast({ title: "Friend Request Sent", description: result.message });
-        setFriendEmail(""); // Clear input
+        setFriendEmail(""); 
       } else {
         toast({ variant: "destructive", title: "Failed to Send Request", description: result.message });
       }
@@ -108,11 +140,14 @@ export default function FriendsPage() {
   };
 
   const handleAcceptRequest = async (request: FriendRequest) => {
-    if (!user || !currentUserProfile) return;
+    const profileToUseForAccept = userProfile || currentUserProfileForPage;
+    if (!authUser || !profileToUseForAccept) {
+        toast({ variant: "destructive", title: "Error", description: "Your user profile is not loaded." });
+        return;
+    }
     setIsProcessingRequest(request.id);
 
     const fromUserProfile = await getUserProfile(request.fromUserId); 
-    const toUserProfile = currentUserProfile; 
 
     if (!fromUserProfile) {
         toast({ variant: "destructive", title: "Error", description: "Could not find sender's profile." });
@@ -121,9 +156,9 @@ export default function FriendsPage() {
     }
 
     try {
-      await acceptFriendRequest(request.id, fromUserProfile, toUserProfile);
+      await acceptFriendRequest(request.id, fromUserProfile, profileToUseForAccept);
       toast({ title: "Friend Added", description: `You are now friends with ${request.fromUserDisplayName || request.fromUserEmail}.` });
-      fetchInitialData(); 
+      if (authUser) fetchInitialData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Could not accept friend request." });
     } finally {
@@ -136,7 +171,7 @@ export default function FriendsPage() {
     try {
       await rejectFriendRequest(requestId);
       toast({ title: "Request Rejected" });
-      fetchInitialData(); 
+      if (authUser) fetchInitialData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Could not reject friend request." });
     } finally {
@@ -145,12 +180,12 @@ export default function FriendsPage() {
   };
 
   const handleRemoveFriend = async (friendUid: string) => {
-    if (!user) return;
+    if (!authUser) return;
     setIsRemovingFriend(friendUid);
     try {
-      await removeFriend(user.uid, friendUid);
+      await removeFriend(authUser.uid, friendUid);
       toast({ title: "Friend Removed" });
-      fetchInitialData(); 
+      if (authUser) fetchInitialData(); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Could not remove friend." });
     } finally {
@@ -167,6 +202,8 @@ export default function FriendsPage() {
     if (email) return email.substring(0,2).toUpperCase();
     return '??';
   }
+  
+  const isLoading = isLoadingFriends || isLoadingRequests;
 
   return (
     <div className="space-y-6">
@@ -207,7 +244,7 @@ export default function FriendsPage() {
                 <DialogClose asChild>
                    <Button type="button" variant="outline">Cancel</Button>
                 </DialogClose>
-                <Button type="submit" disabled={isSendingRequest || !friendEmail.trim()}>
+                <Button type="submit" disabled={isSendingRequest || !friendEmail.trim() || authLoading}>
                   {isSendingRequest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4"/>}
                   Send Request
                 </Button>
@@ -249,7 +286,7 @@ export default function FriendsPage() {
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleAcceptRequest(req)}
-                        disabled={isProcessingRequest === req.id}
+                        disabled={isProcessingRequest === req.id || authLoading}
                     >
                       {isProcessingRequest === req.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserCheck className="h-4 w-4 text-green-600" />}
                       <span className="ml-1.5 hidden sm:inline">Accept</span>
@@ -258,7 +295,7 @@ export default function FriendsPage() {
                         variant="ghost" 
                         size="sm" 
                         onClick={() => handleRejectRequest(req.id)}
-                        disabled={isProcessingRequest === req.id}
+                        disabled={isProcessingRequest === req.id || authLoading}
                         className="text-destructive hover:text-destructive/80"
                     >
                        {isProcessingRequest === req.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserX className="h-4 w-4" />}
@@ -310,7 +347,7 @@ export default function FriendsPage() {
                         variant="ghost" 
                         size="icon" 
                         onClick={() => handleRemoveFriend(friend.uid)} 
-                        disabled={isRemovingFriend === friend.uid}
+                        disabled={isRemovingFriend === friend.uid || authLoading}
                         className="text-destructive hover:text-destructive/80"
                         title="Remove friend"
                         aria-label={`Remove friend ${friend.displayName || friend.email}`}
@@ -335,4 +372,3 @@ export default function FriendsPage() {
     </div>
   );
 }
-

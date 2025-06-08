@@ -74,12 +74,12 @@ const initialSortCriteria: SortCriteria = {
 };
 
 export default function ExpensesPage() {
-  const { user } = useAuth();
+  const { authUser, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
   const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Page-specific loading
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const [userGroups, setUserGroups] = useState<Group[]>([]);
@@ -94,55 +94,70 @@ export default function ExpensesPage() {
   const [tempSort, setTempSort] = useState<SortCriteria>(initialSortCriteria);
 
   const fetchInitialData = useCallback(async () => {
-    if (user) {
-      console.log("[ExpensesPage.fetchInitialData] Fetching data for user:", user.uid);
-      setIsLoading(true);
-      try {
-        const [userExpenses, fetchedGroups] = await Promise.all([
-          getExpensesByUser(user.uid),
-          getGroupsForUser(user.uid)
-        ]);
-        
-        console.log("[ExpensesPage.fetchInitialData] Fetched expenses:", userExpenses);
-        setAllExpenses(userExpenses);
-        setUserGroups(fetchedGroups || []);
-
-        const categories = Array.from(new Set(userExpenses.map(exp => exp.category))).sort();
-        setUniqueCategories(categories);
-        const currencies = Array.from(new Set(userExpenses.map(exp => exp.currency))).sort() as CurrencyCode[];
-        setUniqueCurrencies(currencies);
-        
-      } catch (error: any) {
-        console.error("[ExpensesPage.fetchInitialData] Failed to fetch initial data:", error);
-        let description = "Could not load expenses or groups. Please try again.";
-        if (error.code === 'permission-denied') {
-          description = "You don't have permission to access this data. Please check Firestore rules.";
-        } else if (error.code === 'unavailable') {
-          description = "The service is currently unavailable. Please try again later.";
-        }
-        toast({
-          variant: "destructive",
-          title: "Error Loading Data",
-          description: description,
-        });
-        setAllExpenses([]); 
-        setUserGroups([]); 
-      } finally {
+    if (!authUser || !authUser.uid) {
+        console.warn("[ExpensesPage.fetchInitialData] Attempted fetch without authUser or authUser.uid");
+        setAllExpenses([]);
+        setUserGroups([]);
+        setUniqueCategories([]);
+        setUniqueCurrencies([]);
         setIsLoading(false);
+        return;
+    }
+    
+    console.log("[ExpensesPage.fetchInitialData] Fetching data for user:", authUser.uid);
+    setIsLoading(true); // Set page-specific loading to true
+    try {
+      const [userExpensesData, fetchedGroupsData] = await Promise.all([
+        getExpensesByUser(authUser.uid),
+        getGroupsForUser(authUser.uid)
+      ]);
+      
+      console.log("[ExpensesPage.fetchInitialData] Fetched expenses:", userExpensesData);
+      setAllExpenses(userExpensesData);
+      setUserGroups(fetchedGroupsData || []);
+
+      const categories = Array.from(new Set(userExpensesData.map(exp => exp.category))).sort();
+      setUniqueCategories(categories);
+      const currencies = Array.from(new Set(userExpensesData.map(exp => exp.currency))).sort() as CurrencyCode[];
+      setUniqueCurrencies(currencies);
+      
+    } catch (error: any) {
+      console.error("[ExpensesPage.fetchInitialData] Failed to fetch initial data:", error);
+      let description = "Could not load expenses or groups. Please try again.";
+      if (error.code === 'permission-denied') {
+        description = "You don't have permission to access this data. Please check Firestore rules.";
+      } else if (error.code === 'unavailable') {
+        description = "The service is currently unavailable. Please try again later.";
       }
+      toast({
+        variant: "destructive",
+        title: "Error Loading Data",
+        description: description,
+      });
+      setAllExpenses([]); 
+      setUserGroups([]); 
+    } finally {
+      setIsLoading(false); // Set page-specific loading to false
+    }
+  }, [authUser, toast]); 
+  
+  useEffect(() => {
+    if (authLoading) {
+      setIsLoading(true); // Keep page loading if auth is loading
+      return;
+    }
+    if (authUser) {
+      fetchInitialData();
     } else {
-      console.log("[ExpensesPage.fetchInitialData] No user, clearing data.");
+      // No user, clear data and stop loading
       setAllExpenses([]);
       setUserGroups([]);
       setUniqueCategories([]);
       setUniqueCurrencies([]);
       setIsLoading(false);
     }
-  }, [user, toast]);
-  
-  useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+  }, [authLoading, authUser, fetchInitialData]);
+
 
   useEffect(() => {
     setTempFilters(currentFilters);
@@ -225,7 +240,7 @@ export default function ExpensesPage() {
         title: "Expense Deleted",
         description: "The expense has been successfully deleted.",
       });
-      fetchInitialData(); 
+      if (authUser) fetchInitialData(); // Refresh the list only if user still exists
     } catch (error) {
       console.error("Failed to delete expense:", error);
       toast({
@@ -236,7 +251,7 @@ export default function ExpensesPage() {
     } finally {
       setIsDeleting(null);
     }
-  }, [toast, fetchInitialData]);
+  }, [toast, fetchInitialData, authUser]);
 
   const handleEdit = useCallback((expenseId: string) => {
     if (!expenseId) return;
