@@ -26,7 +26,7 @@ import {
 import { format, parseISO } from "date-fns";
 
 export default function IncomePage() {
-  const { user } = useAuth();
+  const { authUser, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -35,30 +35,42 @@ export default function IncomePage() {
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const fetchIncomeData = useCallback(async () => {
-    if (user) {
-      setIsLoading(true);
-      try {
-        const userIncome = await getIncomeByUser(user.uid);
-        setIncomeList(userIncome);
-      } catch (error) {
-        console.error("Failed to fetch income data:", error);
-        toast({
-          variant: "destructive",
-          title: "Error Loading Income",
-          description: "Could not load your income records. Please try again.",
-        });
-      } finally {
-        setIsLoading(false);
-      }
+    if (!authUser) {
+      setIncomeList([]);
+      setIsLoading(false); // Ensure loading stops if somehow called without authUser
+      return;
+    }
+    // Page-specific loading is managed by the main useEffect
+    try {
+      const userIncome = await getIncomeByUser(authUser.uid);
+      setIncomeList(userIncome);
+    } catch (error) {
+      console.error("Failed to fetch income data:", error);
+      toast({
+        variant: "destructive",
+        title: "Error Loading Income",
+        description: "Could not load your income records. Please try again.",
+      });
+      setIncomeList([]); // Clear data on error
+    } finally {
+      setIsLoading(false); // Page-specific loading stops
+    }
+  }, [authUser, toast]);
+
+  useEffect(() => {
+    if (authLoading) {
+      setIsLoading(true); // Page is loading because auth is loading
+      return;
+    }
+    if (authUser) {
+      setIsLoading(true); // Auth is done, now page will fetch its data
+      fetchIncomeData();
     } else {
+      // No user, auth is done.
       setIncomeList([]);
       setIsLoading(false);
     }
-  }, [user, toast]);
-
-  useEffect(() => {
-    fetchIncomeData();
-  }, [fetchIncomeData]);
+  }, [authLoading, authUser, fetchIncomeData]);
 
   const handleDelete = async (incomeId: string) => {
     if (!incomeId) return;
@@ -69,7 +81,7 @@ export default function IncomePage() {
         title: "Income Deleted",
         description: "The income record has been successfully deleted.",
       });
-      fetchIncomeData(); // Refresh the list
+      if (authUser) fetchIncomeData(); // Refresh the list only if user still exists
     } catch (error) {
       console.error("Failed to delete income:", error);
       toast({

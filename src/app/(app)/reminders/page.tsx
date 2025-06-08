@@ -62,10 +62,10 @@ const reminderSchema = z.object({
 });
 
 export default function RemindersPage() {
-  const { user } = useAuth();
+  const { authUser, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Page-specific loading
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessing, setIsProcessing] = useState<string | null>(null); // Reminder ID being processed
   
@@ -84,27 +84,38 @@ export default function RemindersPage() {
   });
 
   const fetchReminders = useCallback(async () => {
-    if (!user) {
-      setReminders([]); // Clear reminders if no user
-      setIsLoading(false); // Ensure loading stops
+    if (!authUser) {
+      setReminders([]); 
+      setIsLoading(false); 
       return;
     }
-    setIsLoading(true);
+    // Page-specific loading is managed by the main useEffect
     try {
-      const userReminders = await getRemindersByUser(user.uid);
+      const userReminders = await getRemindersByUser(authUser.uid);
       setReminders(userReminders);
     } catch (error) {
       console.error("Error fetching reminders:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load reminders." });
-      setReminders([]); // Clear on error too
+      setReminders([]); 
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Page-specific loading stops
     }
-  }, [user, toast]);
+  }, [authUser, toast]);
 
   useEffect(() => {
-    fetchReminders();
-  }, [fetchReminders]);
+    if (authLoading) {
+      setIsLoading(true); // Page is loading because auth is loading
+      return;
+    }
+    if (authUser) {
+      setIsLoading(true); // Auth is done, now page will fetch its data
+      fetchReminders();
+    } else {
+      // No user, auth is done.
+      setReminders([]);
+      setIsLoading(false);
+    }
+  }, [authLoading, authUser, fetchReminders]);
   
   useEffect(() => {
     if (editingReminder) {
@@ -126,20 +137,20 @@ export default function RemindersPage() {
 
 
   const handleFormSubmit = async (values: ReminderFormData) => {
-    if (!user) return;
+    if (!authUser) return;
     setIsSubmitting(true);
     try {
       if (editingReminder && editingReminder.id) {
         await updateReminder(editingReminder.id, values);
         toast({ title: "Reminder Updated", description: "Your reminder has been successfully updated." });
       } else {
-        await addReminder(user.uid, values);
+        await addReminder(authUser.uid, values);
         toast({ title: "Reminder Added", description: "Your reminder has been set." });
       }
       form.reset({ title: "", notes: "", dueDate: format(new Date(), "yyyy-MM-dd"), recurrence: "none" });
       setIsReminderDialogOpen(false);
       setEditingReminder(null);
-      fetchReminders();
+      if (authUser) fetchReminders(); // Refresh list
     } catch (error) {
       console.error("Error saving reminder:", error);
       toast({ variant: "destructive", title: "Error", description: `Could not ${editingReminder ? 'update' : 'add'} reminder.` });
@@ -163,7 +174,7 @@ export default function RemindersPage() {
     try {
       await updateReminderCompletion(reminderId, !currentStatus);
       toast({ title: "Reminder Updated", description: `Reminder marked as ${!currentStatus ? "complete" : "pending"}.` });
-      fetchReminders();
+      if (authUser) fetchReminders(); // Refresh list
     } catch (error) {
       console.error("Error updating reminder:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not update reminder status." });
@@ -177,7 +188,7 @@ export default function RemindersPage() {
     try {
       await deleteReminder(reminderId);
       toast({ title: "Reminder Deleted", description: "The reminder has been removed." });
-      fetchReminders();
+      if (authUser) fetchReminders(); // Refresh list
     } catch (error) {
       console.error("Error deleting reminder:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not delete reminder." });

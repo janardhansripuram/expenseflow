@@ -25,49 +25,75 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Link from "next/link";
 import Image from "next/image";
-import { Timestamp } from "firebase/firestore"; // Import Timestamp
+import { Timestamp } from "firebase/firestore"; 
 
 export default function GroupsPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile: authUserProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Page-specific loader
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [selectedFriends, setSelectedFriends] = useState<Record<string, boolean>>({});
   const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
 
   const fetchInitialData = useCallback(async () => {
-    if (!user) return;
-    setIsLoadingGroups(true);
+    if (!authUser) {
+      setCurrentUserProfile(null);
+      setGroups([]);
+      setFriends([]);
+      setIsLoadingPage(false);
+      return;
+    }
+    // setIsLoadingPage(true) is handled by main useEffect
     try {
-      const profile = await getUserProfile(user.uid);
+      const profile = authUserProfile || await getUserProfile(authUser.uid); // Use profile from auth context if available
       setCurrentUserProfile(profile);
 
-      const [userGroups, userFriends] = await Promise.all([
-        getGroupsForUser(user.uid),
-        getFriends(user.uid),
-      ]);
-      setGroups(userGroups);
-      setFriends(userFriends);
+      if (profile) { // Only fetch groups and friends if profile is available
+        const [userGroups, userFriends] = await Promise.all([
+          getGroupsForUser(authUser.uid),
+          getFriends(authUser.uid),
+        ]);
+        setGroups(userGroups);
+        setFriends(userFriends);
+      } else {
+        setGroups([]);
+        setFriends([]);
+        toast({ variant: "destructive", title: "Error", description: "Could not load user profile." });
+      }
     } catch (error) {
       console.error("Failed to fetch groups data:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load groups data." });
+      setGroups([]);
+      setFriends([]);
     } finally {
-      setIsLoadingGroups(false);
+      setIsLoadingPage(false); // Page-specific loading stops
     }
-  }, [user, toast]);
+  }, [authUser, authUserProfile, toast]);
 
   useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
+    }
+    if (authUser) {
+      setIsLoadingPage(true); // Page will fetch its data
+      fetchInitialData();
+    } else {
+      setCurrentUserProfile(null);
+      setGroups([]);
+      setFriends([]);
+      setIsLoadingPage(false);
+    }
+  }, [authLoading, authUser, fetchInitialData]);
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !currentUserProfile || !newGroupName.trim()) {
-      toast({ variant: "destructive", title: "Error", description: "Group name is required." });
+    if (!authUser || !currentUserProfile || !newGroupName.trim()) {
+      toast({ variant: "destructive", title: "Error", description: "Group name and user profile are required." });
       return;
     }
 
@@ -78,7 +104,7 @@ export default function GroupsPage() {
     const allMemberIdsSet = new Set([currentUserProfile.uid, ...initialMemberIds]);
     const allMemberIds = Array.from(allMemberIdsSet);
 
-    if (allMemberIds.length === 0) { // Should not happen if creator is always added
+    if (allMemberIds.length === 0) { 
         toast({variant: "destructive", title: "Error", description: "A group must have at least one member (the creator)."});
         return;
     }
@@ -92,16 +118,13 @@ export default function GroupsPage() {
             } else {
                 const friendProfile = friends.find(f => f.uid === uid);
                 if (friendProfile) {
-                     // Construct a UserProfile-like object from Friend data
                     memberProfilesToCreate.push({ 
                         uid: friendProfile.uid, 
                         email: friendProfile.email, 
                         displayName: friendProfile.displayName, 
-                        createdAt: Timestamp.now() // Placeholder, actual profile has its own createdAt
+                        createdAt: Timestamp.now().toDate().toISOString() 
                     });
                 } else {
-                    // This case should ideally not happen if selection is only from friends
-                    // and creator is currentUserProfile
                     const fetchedProfile = await getUserProfile(uid);
                     if (fetchedProfile) memberProfilesToCreate.push(fetchedProfile);
                     else throw new Error(`Could not fetch profile for UID: ${uid}`);
@@ -117,7 +140,7 @@ export default function GroupsPage() {
         toast({ title: "Group Created", description: `Group "${newGroupName}" has been successfully created.` });
         setNewGroupName("");
         setSelectedFriends({});
-        fetchInitialData(); 
+        if (authUser) fetchInitialData(); 
         setIsCreateGroupDialogOpen(false);
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Create Group", description: error.message || "An unexpected error occurred." });
@@ -142,6 +165,16 @@ export default function GroupsPage() {
     if (email) return email.substring(0,2).toUpperCase();
     return '??';
   }
+
+  if (isLoadingPage) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg text-foreground">Loading Groups...</p>
+      </div>
+    );
+  }
+
 
   return (
     <div className="space-y-6">
@@ -226,10 +259,10 @@ export default function GroupsPage() {
           <CardDescription>List of groups you are a member of.</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingGroups ? (
+          {isLoadingPage ? ( // Use isLoadingPage for the content part after main loader
             <div className="flex items-center justify-center py-4">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <p className="ml-2">Loading groups...</p>
+              <p className="ml-2">Loading groups list...</p>
             </div>
           ) : groups.length > 0 ? (
             <div className="space-y-3">

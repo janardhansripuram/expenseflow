@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,10 +41,10 @@ const PIE_COLORS = [
 
 
 export default function ReportsPage() {
-  const { user } = useAuth();
+  const { authUser, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [allRawExpenses, setAllRawExpenses] = useState<Expense[]>([]);
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Page-level loader
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<SummarizeSpendingOutput | null>(null);
   
@@ -55,24 +55,38 @@ export default function ReportsPage() {
   const [uniqueCurrenciesForFilter, setUniqueCurrenciesForFilter] = useState<CurrencyCode[]>([]);
   const [selectedChartCurrencyFilter, setSelectedChartCurrencyFilter] = useState<CurrencyCode | 'all'>('all');
 
+  const fetchExpenses = useCallback(async () => {
+    if (!authUser) {
+      setAllRawExpenses([]);
+      setIsLoadingPage(false);
+      return;
+    }
+    // setIsLoadingPage(true) is managed by the main useEffect
+    try {
+      const userExpenses = await getExpensesByUser(authUser.uid);
+      setAllRawExpenses(userExpenses);
+    } catch (error) {
+      console.error("Failed to fetch expenses:", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not load expenses for reports." });
+      setAllRawExpenses([]);
+    } finally {
+      setIsLoadingPage(false); // Page-specific loading stops
+    }
+  }, [authUser, toast]);
 
   useEffect(() => {
-    async function fetchExpenses() {
-      if (user) {
-        setIsLoadingExpenses(true);
-        try {
-          const userExpenses = await getExpensesByUser(user.uid);
-          setAllRawExpenses(userExpenses);
-        } catch (error) {
-          console.error("Failed to fetch expenses:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not load expenses for reports." });
-        } finally {
-          setIsLoadingExpenses(false);
-        }
-      }
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
     }
-    fetchExpenses();
-  }, [user, toast]);
+    if (authUser) {
+      setIsLoadingPage(true); // Page will fetch its data
+      fetchExpenses();
+    } else {
+      setAllRawExpenses([]);
+      setIsLoadingPage(false);
+    }
+  }, [authLoading, authUser, fetchExpenses]);
 
   const expensesFilteredByPeriod = useMemo(() => {
     if (!allRawExpenses.length) {
@@ -150,7 +164,7 @@ export default function ReportsPage() {
 
 
   const handleGenerateSummary = async () => {
-    if (!user || expensesFilteredByPeriod.length === 0) {
+    if (!authUser || expensesFilteredByPeriod.length === 0) {
       toast({ title: "No Data", description: "No expenses found for the selected period to generate a summary." });
       setSummaryData(null);
       return;
@@ -298,6 +312,14 @@ export default function ReportsPage() {
     }
   };
 
+  if (isLoadingPage) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg text-foreground">Loading Reports...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -327,14 +349,14 @@ export default function ReportsPage() {
                 <SelectItem value="all">All Currencies (Direct Sum)</SelectItem>
                 {uniqueCurrenciesForFilter.map(currency => (
                   <SelectItem key={currency} value={currency}>
-                    {SUPPORTED_CURRENCIES.find(c => c.code === currency)?.name || currency} Only
+                    {SUPPORTED_CURRENCIES.find(c => c.code === currency)?.name || currency} ({SUPPORTED_CURRENCIES.find(c => c.code === currency)?.symbol})
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Button 
                 onClick={handleGenerateSummary} 
-                disabled={isLoadingSummary || isLoadingExpenses || expensesFilteredByPeriod.length === 0 || (selectedPeriod === 'custom' && (!customStartDate || !customEndDate))}
+                disabled={isLoadingSummary || isLoadingPage || expensesFilteredByPeriod.length === 0 || (selectedPeriod === 'custom' && (!customStartDate || !customEndDate))}
                 className="w-full sm:w-auto"
             >
                 {isLoadingSummary ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
@@ -342,7 +364,7 @@ export default function ReportsPage() {
             </Button>
              <Button 
                 onClick={handleExportToCSV} 
-                disabled={isLoadingExpenses || expensesFilteredByPeriod.length === 0}
+                disabled={isLoadingPage || expensesFilteredByPeriod.length === 0}
                 variant="outline"
                 className="w-full sm:w-auto"
             >
@@ -386,7 +408,7 @@ export default function ReportsPage() {
       )}
 
 
-      {isLoadingExpenses && (
+      {isLoadingPage && ( // This check might be redundant due to the main loader, but harmless
         <Card className="shadow-lg">
           <CardContent className="flex flex-col items-center justify-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -395,7 +417,7 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {!isLoadingExpenses && expensesFilteredByPeriod.length === 0 && (
+      {!isLoadingPage && expensesFilteredByPeriod.length === 0 && (
          <Card className="shadow-lg">
             <CardHeader>
                 <CardTitle className="font-headline">No Data</CardTitle>
@@ -407,7 +429,7 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {!isLoadingExpenses && expensesFilteredByPeriod.length > 0 && (
+      {!isLoadingPage && expensesFilteredByPeriod.length > 0 && (
         <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
             <Card className="shadow-lg">
             <CardHeader>
@@ -416,7 +438,7 @@ export default function ReportsPage() {
                 Spending by Category
                 </CardTitle>
                 <CardDescription>Visual breakdown of your expenses for {getPeriodDescriptionForCharts()}.
-                {selectedChartCurrencyFilter !== 'all' && ` Showing data for ${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.name || selectedChartCurrencyFilter} only.`}
+                {selectedChartCurrencyFilter !== 'all' && ` Showing data for ${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.name || selectedChartCurrencyFilter} (${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.symbol}) only.`}
                 </CardDescription>
             </CardHeader>
             <CardContent className="w-full">
@@ -463,7 +485,7 @@ export default function ReportsPage() {
                         Category Distribution
                     </CardTitle>
                     <CardDescription>Proportional spending by category for {getPeriodDescriptionForCharts()}.
-                    {selectedChartCurrencyFilter !== 'all' && ` Showing data for ${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.name || selectedChartCurrencyFilter} only.`}
+                    {selectedChartCurrencyFilter !== 'all' && ` Showing data for ${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.name || selectedChartCurrencyFilter} (${SUPPORTED_CURRENCIES.find(c=>c.code === selectedChartCurrencyFilter)?.symbol}) only.`}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="w-full">
@@ -584,5 +606,3 @@ export default function ReportsPage() {
     </div>
   );
 }
-
-    

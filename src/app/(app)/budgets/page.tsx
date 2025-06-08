@@ -18,7 +18,7 @@ import { Progress } from "@/components/ui/progress";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useForm } from "react-hook-form"; // Added missing import
+import { useForm } from "react-hook-form";
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; 
 import { cn } from "@/lib/utils";
@@ -40,7 +40,7 @@ const budgetSchema = z.object({
 export default function BudgetsPage() {
   const { authUser, userProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Page-specific loading
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]); 
   const [spentAmounts, setSpentAmounts] = useState<Record<string, { spent: number; hasOtherCurrencyExpenses: boolean }>>({});
@@ -56,7 +56,7 @@ export default function BudgetsPage() {
       name: "",
       category: "",
       amount: "",
-      currency: userProfile?.defaultCurrency || "USD",
+      currency: "USD", // Initial default, will be updated by useEffect
       period: "monthly",
     },
   });
@@ -64,39 +64,62 @@ export default function BudgetsPage() {
   useEffect(() => {
     if (userProfile && !authLoading && !editingBudget) { 
       form.reset({
-        ...form.getValues(),
+        name: "",
+        category: "",
+        amount: "",
         currency: userProfile.defaultCurrency || "USD",
         period: "monthly", 
       });
+    } else if (editingBudget && userProfile) {
+         form.reset({
+            name: editingBudget.name,
+            category: editingBudget.category,
+            amount: String(editingBudget.amount),
+            currency: editingBudget.currency || userProfile.defaultCurrency || "USD",
+            period: editingBudget.period,
+        });
     }
   }, [userProfile, authLoading, form, editingBudget]);
 
 
   const fetchBudgetData = useCallback(async () => {
-    if (authUser) {
-      setIsLoading(true);
-      try {
-        const [userBudgets, userExpenses] = await Promise.all([
-          getBudgetsByUser(authUser.uid),
-          getExpensesByUser(authUser.uid)
-        ]);
-        setBudgets(userBudgets);
-        setExpenses(userExpenses);
-      } catch (error) {
-        toast({ variant: "destructive", title: "Error", description: "Could not load budget data." });
-      } finally {
-        setIsLoading(false);
-      }
-    } else {
-      setIsLoading(false);
+    if (!authUser) {
       setBudgets([]);
       setExpenses([]);
+      setIsLoading(false);
+      return;
+    }
+    // Page-specific loading is managed by the main useEffect
+    try {
+      const [userBudgets, userExpenses] = await Promise.all([
+        getBudgetsByUser(authUser.uid),
+        getExpensesByUser(authUser.uid)
+      ]);
+      setBudgets(userBudgets);
+      setExpenses(userExpenses);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Could not load budget data." });
+      setBudgets([]);
+      setExpenses([]);
+    } finally {
+      setIsLoading(false); // Page-specific loading stops
     }
   }, [authUser, toast]);
 
   useEffect(() => {
-    fetchBudgetData();
-  }, [fetchBudgetData]);
+    if (authLoading) {
+      setIsLoading(true);
+      return;
+    }
+    if (authUser) {
+      setIsLoading(true); // Page will fetch its data
+      fetchBudgetData();
+    } else {
+      setBudgets([]);
+      setExpenses([]);
+      setIsLoading(false);
+    }
+  }, [authLoading, authUser, fetchBudgetData]);
   
   useEffect(() => {
     if (budgets.length > 0 && expenses.length > 0) {
@@ -138,7 +161,7 @@ export default function BudgetsPage() {
         name: budget.name,
         category: budget.category,
         amount: String(budget.amount),
-        currency: budget.currency,
+        currency: budget.currency || userProfile?.defaultCurrency || "USD",
         period: budget.period,
       });
     } else {
@@ -158,7 +181,7 @@ export default function BudgetsPage() {
         await addBudget(authUser.uid, values);
         toast({ title: "Budget Created", description: "Your new budget has been set." });
       }
-      fetchBudgetData();
+      if (authUser) fetchBudgetData(); // Refresh data
       setIsBudgetDialogOpen(false);
       setEditingBudget(null);
     } catch (error) {
@@ -174,7 +197,7 @@ export default function BudgetsPage() {
     try {
       await deleteBudget(budgetId);
       toast({ title: "Budget Deleted", description: "The budget has been successfully deleted." });
-      fetchBudgetData();
+      if (authUser) fetchBudgetData(); // Refresh data
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Could not delete budget." });
     } finally {
@@ -197,7 +220,7 @@ export default function BudgetsPage() {
   };
 
 
-  if (isLoading || authLoading) {
+  if (isLoading) { // Page-level loading (covers auth and initial data fetch)
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -331,7 +354,7 @@ export default function BudgetsPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
                       </FormControl>
@@ -373,7 +396,7 @@ export default function BudgetsPage() {
                     render={({ field }) => (
                         <FormItem>
                         <FormLabel className="flex items-center"><Landmark className="mr-2 h-4 w-4 text-muted-foreground" />Currency</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value || userProfile?.defaultCurrency || "USD"}>
                             <FormControl>
                             <SelectTrigger>
                                 <SelectValue placeholder="Select currency" />
@@ -425,5 +448,3 @@ export default function BudgetsPage() {
     </div>
   );
 }
-
-    

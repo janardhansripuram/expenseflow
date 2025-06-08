@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, Landmark, Users, ArrowRight, ArrowLeft, AlertTriangle } from "lucide-react";
@@ -10,54 +10,65 @@ import { getFriends, getUserProfile, getSplitExpensesForUser } from "@/lib/fireb
 import type { Friend, UserProfile, SplitExpense, CurrencyCode } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; // Added UIDescription for consistency
-
-interface DebtSummary {
-  friendId: string;
-  friendDisplayName: string;
-  friendEmail: string;
-  friendAvatarText: string;
-  netAmount: number; // Positive: friend owes user, Negative: user owes friend
-  currency: CurrencyCode;
-}
+import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; 
 
 export default function DebtsPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile: authUserProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [personalSplits, setPersonalSplits] = useState<SplitExpense[]>([]);
     
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Page-specific loading
+
+  const fetchAllData = useCallback(async () => {
+    if (!authUser) {
+      setCurrentUserProfile(null);
+      setFriends([]);
+      setPersonalSplits([]);
+      setIsLoadingPage(false);
+      return;
+    }
+    // setIsLoadingPage(true) is handled by main useEffect
+    try {
+      const [profile, fetchedFriends, allUserSplits] = await Promise.all([
+        authUserProfile || getUserProfile(authUser.uid), // Use profile from auth context if available
+        getFriends(authUser.uid),
+        getSplitExpensesForUser(authUser.uid),
+      ]);
+
+      setCurrentUserProfile(profile);
+      setFriends(fetchedFriends || []);
+      setPersonalSplits(allUserSplits.filter(split => !split.groupId)); 
+
+    } catch (error) {
+      console.error("Failed to fetch data for debts page:", error);
+      toast({ variant: "destructive", title: "Error Loading Data", description: "Could not load necessary data." });
+      setCurrentUserProfile(null);
+      setFriends([]);
+      setPersonalSplits([]);
+    } finally {
+      setIsLoadingPage(false); // Page-specific loading stops
+    }
+  }, [authUser, authUserProfile, toast]);
 
   useEffect(() => {
-    async function fetchAllData() {
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
-      setIsLoading(true);
-      try {
-        const [profile, fetchedFriends, allUserSplits] = await Promise.all([
-          getUserProfile(user.uid),
-          getFriends(user.uid),
-          getSplitExpensesForUser(user.uid),
-        ]);
-
-        setCurrentUserProfile(profile);
-        setFriends(fetchedFriends || []);
-        setPersonalSplits(allUserSplits.filter(split => !split.groupId)); // Only personal splits
-
-      } catch (error) {
-        console.error("Failed to fetch data for debts page:", error);
-        toast({ variant: "destructive", title: "Error Loading Data", description: "Could not load necessary data." });
-      } finally {
-        setIsLoading(false);
-      }
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
     }
-    fetchAllData();
-  }, [user, toast]);
+    if (authUser) {
+      setIsLoadingPage(true); // Page will fetch its data
+      fetchAllData();
+    } else {
+      // No user, auth is done.
+      setCurrentUserProfile(null);
+      setFriends([]);
+      setPersonalSplits([]);
+      setIsLoadingPage(false);
+    }
+  }, [authLoading, authUser, fetchAllData]);
 
   const debtSummaries = useMemo(() => {
     if (!currentUserProfile || (friends.length === 0 && personalSplits.length === 0)) {
@@ -122,7 +133,7 @@ export default function DebtsPage() {
     return currencies.size > 1;
   }, [debtSummaries]);
 
-  if (isLoading) {
+  if (isLoadingPage) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -216,4 +227,3 @@ export default function DebtsPage() {
     </div>
   );
 }
-

@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -30,64 +30,91 @@ interface ProcessedReminder extends Reminder {
 }
 
 export default function DashboardPage() {
-  const { authUser: user } = useAuth(); // Renamed user to authUser to match useAuth hook
+  const { authUser, loading: authLoading } = useAuth(); 
   const router = useRouter();
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [allUserExpensesForChart, setAllUserExpensesForChart] = useState<Expense[]>([]);
   const [userReminders, setUserReminders] = useState<Reminder[]>([]);
 
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
-  const [isLoadingChartData, setIsLoadingChartData] = useState(true);
-  const [isLoadingReminders, setIsLoadingReminders] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Overall page loader
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true); // Specific to recent activity
+  const [isLoadingChartData, setIsLoadingChartData] = useState(true); // Specific to spending overview
+  const [isLoadingReminders, setIsLoadingReminders] = useState(true); // Specific to reminders
 
   const [uniqueCurrenciesForDashboardChart, setUniqueCurrenciesForDashboardChart] = useState<CurrencyCode[]>([]);
   const [selectedDashboardChartCurrency, setSelectedDashboardChartCurrency] = useState<CurrencyCode | 'all'>('all');
 
+  const fetchDashboardData = useCallback(async () => {
+    if (!authUser) {
+      setRecentExpenses([]);
+      setAllUserExpensesForChart([]);
+      setUserReminders([]);
+      setUniqueCurrenciesForDashboardChart([]);
+      setIsLoadingExpenses(false);
+      setIsLoadingChartData(false);
+      setIsLoadingReminders(false);
+      setIsLoadingPage(false); // Ensure main page loader stops
+      return;
+    }
+
+    setIsLoadingExpenses(true);
+    setIsLoadingChartData(true);
+    setIsLoadingReminders(true);
+    // setIsLoadingPage(true) is handled by the main useEffect
+
+    try {
+      const expensesPromise = getRecentExpensesByUser(authUser.uid, 3);
+      const allExpensesPromise = getExpensesByUser(authUser.uid);
+      const remindersPromise = getRemindersByUser(authUser.uid);
+
+      const [recent, allUserExpenses, reminders] = await Promise.all([expensesPromise, allExpensesPromise, remindersPromise]);
+
+      setRecentExpenses(recent);
+      setAllUserExpensesForChart(allUserExpenses);
+      setUserReminders(reminders);
+
+      const currencies = Array.from(new Set(allUserExpenses.map(exp => exp.currency))).sort() as CurrencyCode[];
+      setUniqueCurrenciesForDashboardChart(currencies);
+      if (currencies.length > 0 && selectedDashboardChartCurrency !== 'all' && !currencies.includes(selectedDashboardChartCurrency)) {
+        setSelectedDashboardChartCurrency('all');
+      } else if (currencies.length === 0 && selectedDashboardChartCurrency !== 'all') {
+        setSelectedDashboardChartCurrency('all');
+      }
+
+    } catch (error) {
+      console.error("Failed to fetch dashboard data:", error);
+      setRecentExpenses([]);
+      setAllUserExpensesForChart([]);
+      setUserReminders([]);
+    } finally {
+      setIsLoadingExpenses(false);
+      setIsLoadingChartData(false);
+      setIsLoadingReminders(false);
+      setIsLoadingPage(false); // Main page content is ready or failed
+    }
+  }, [authUser, selectedDashboardChartCurrency]); 
 
   useEffect(() => {
-    async function fetchDashboardData() {
-      if (user) {
-        setIsLoadingExpenses(true);
-        setIsLoadingChartData(true);
-        setIsLoadingReminders(true);
-        try {
-          const expensesPromise = getRecentExpensesByUser(user.uid, 3);
-          const allExpensesPromise = getExpensesByUser(user.uid);
-          const remindersPromise = getRemindersByUser(user.uid);
-
-          const [recent, allUserExpenses, reminders] = await Promise.all([expensesPromise, allExpensesPromise, remindersPromise]);
-
-          setRecentExpenses(recent);
-          setAllUserExpensesForChart(allUserExpenses);
-          setUserReminders(reminders);
-
-          const currencies = Array.from(new Set(allUserExpenses.map(exp => exp.currency))).sort() as CurrencyCode[];
-          setUniqueCurrenciesForDashboardChart(currencies);
-          if (currencies.length > 0 && selectedDashboardChartCurrency !== 'all' && !currencies.includes(selectedDashboardChartCurrency)) {
-            setSelectedDashboardChartCurrency('all');
-          } else if (currencies.length === 0 && selectedDashboardChartCurrency !== 'all') {
-            setSelectedDashboardChartCurrency('all');
-          }
-
-        } catch (error) {
-          console.error("Failed to fetch dashboard data:", error);
-        } finally {
-          setIsLoadingExpenses(false);
-          setIsLoadingChartData(false);
-          setIsLoadingReminders(false);
-        }
-      } else {
-        setRecentExpenses([]);
-        setAllUserExpensesForChart([]);
-        setUserReminders([]);
-        setUniqueCurrenciesForDashboardChart([]);
-        setIsLoadingExpenses(false);
-        setIsLoadingChartData(false);
-        setIsLoadingReminders(false);
-      }
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
     }
-    fetchDashboardData();
-  }, [user, selectedDashboardChartCurrency]); 
+    if (authUser) {
+      setIsLoadingPage(true); // Dashboard data will be fetched
+      fetchDashboardData();
+    } else {
+      // No user, auth is done.
+      setRecentExpenses([]);
+      setAllUserExpensesForChart([]);
+      setUserReminders([]);
+      setUniqueCurrenciesForDashboardChart([]);
+      setIsLoadingPage(false);
+      setIsLoadingExpenses(false);
+      setIsLoadingChartData(false);
+      setIsLoadingReminders(false);
+    }
+  }, [authLoading, authUser, fetchDashboardData]);
+
 
   const expensesForDashboardChart = useMemo(() => {
     if (selectedDashboardChartCurrency === 'all') {
@@ -164,6 +191,15 @@ export default function DashboardPage() {
       color: "hsl(var(--chart-1))",
     },
   }), [chartCurrencyLabel]);
+
+  if (isLoadingPage) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg text-foreground">Loading Dashboard...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -242,10 +278,10 @@ export default function DashboardPage() {
                             <SelectValue placeholder="Filter Currency" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Currencies</SelectItem>
+                            <SelectItem value="all">All Currencies (Direct Sum)</SelectItem>
                             {uniqueCurrenciesForDashboardChart.map(currency => (
                             <SelectItem key={currency} value={currency}>
-                                {SUPPORTED_CURRENCIES.find(c => c.code === currency)?.name || currency}
+                                {SUPPORTED_CURRENCIES.find(c => c.code === currency)?.name || currency} ({SUPPORTED_CURRENCIES.find(c => c.code === currency)?.symbol})
                             </SelectItem>
                             ))}
                         </SelectContent>
@@ -392,5 +428,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    

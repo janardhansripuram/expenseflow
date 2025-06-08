@@ -35,15 +35,20 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 
 export default function SplitExpensesPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile: authUserProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
-  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null); // Page specific copy, could be derived if authUserProfile exists
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
+  const [savedSplits, setSavedSplits] = useState<SplitExpense[]>([]);
 
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
-  const [isLoadingFriends, setIsLoadingFriends] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Main page loader
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true); // For the expense selection part
+  const [isLoadingFriends, setIsLoadingFriends] = useState(true); // For the friends selection part
+  const [isLoadingSavedSplits, setIsLoadingSavedSplits] = useState(true); // For the history part
+  
   const [isSavingSplit, setIsSavingSplit] = useState(false);
   const [isProcessingSettlement, setIsProcessingSettlement] = useState<string | null>(null); 
   const [isDeletingSplit, setIsDeletingSplit] = useState<string | null>(null); 
@@ -56,51 +61,74 @@ export default function SplitExpensesPage() {
   const [notes, setNotes] = useState<string>("");
 
 
-  const [savedSplits, setSavedSplits] = useState<SplitExpense[]>([]);
-  const [isLoadingSavedSplits, setIsLoadingSavedSplits] = useState(true);
-
   const fetchAllData = useCallback(async () => {
-    if (user) {
-      setIsLoadingExpenses(true);
-      setIsLoadingFriends(true);
-      setIsLoadingSavedSplits(true);
-      try {
-        const [userExpenses, userFriends, profile, userSplits] = await Promise.all([
-          getExpensesByUser(user.uid),
-          getFriends(user.uid),
-          getUserProfile(user.uid),
-          getSplitExpensesForUser(user.uid)
-        ]);
-        setExpenses(userExpenses.filter(exp => !exp.groupId)); 
-        setFriends(userFriends);
-        setCurrentUserProfile(profile);
-        setSavedSplits(userSplits);
-      } catch (error) {
-        console.error("Failed to fetch data for splitting:", error);
-        toast({
-          variant: "destructive",
-          title: "Error Loading Data",
-          description: "Could not load expenses, friends, or saved splits. Please try again.",
-        });
-      } finally {
-        setIsLoadingExpenses(false);
-        setIsLoadingFriends(false);
-        setIsLoadingSavedSplits(false);
-      }
-    } else {
+    if (!authUser) {
+      setCurrentUserProfile(null);
+      setExpenses([]);
+      setFriends([]);
+      setSavedSplits([]);
       setIsLoadingExpenses(false);
       setIsLoadingFriends(false);
       setIsLoadingSavedSplits(false);
+      setIsLoadingPage(false);
+      return;
+    }
+    
+    setIsLoadingExpenses(true);
+    setIsLoadingFriends(true);
+    setIsLoadingSavedSplits(true);
+    // setIsLoadingPage is handled by main useEffect
+
+    try {
+      const [userExpenses, userFriends, profile, userSplits] = await Promise.all([
+        getExpensesByUser(authUser.uid),
+        getFriends(authUser.uid),
+        authUserProfile || getUserProfile(authUser.uid), // Use profile from auth context if available
+        getSplitExpensesForUser(authUser.uid)
+      ]);
+      setExpenses(userExpenses.filter(exp => !exp.groupId)); 
+      setFriends(userFriends);
+      setCurrentUserProfile(profile);
+      setSavedSplits(userSplits);
+    } catch (error) {
+      console.error("Failed to fetch data for splitting:", error);
+      toast({
+        variant: "destructive",
+        title: "Error Loading Data",
+        description: "Could not load expenses, friends, or saved splits. Please try again.",
+      });
       setExpenses([]);
       setFriends([]);
       setCurrentUserProfile(null);
       setSavedSplits([]);
+    } finally {
+      setIsLoadingExpenses(false);
+      setIsLoadingFriends(false);
+      setIsLoadingSavedSplits(false);
+      setIsLoadingPage(false); // All initial data fetches attempted
     }
-  }, [user, toast]);
+  }, [authUser, authUserProfile, toast]);
 
   useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
+    }
+    if (authUser) {
+      setIsLoadingPage(true); // Page will fetch its data
+      fetchAllData();
+    } else {
+      // No user, auth is done.
+      setCurrentUserProfile(null);
+      setExpenses([]);
+      setFriends([]);
+      setSavedSplits([]);
+      setIsLoadingPage(false);
+      setIsLoadingExpenses(false);
+      setIsLoadingFriends(false);
+      setIsLoadingSavedSplits(false);
+    }
+  }, [authLoading, authUser, fetchAllData]);
   
   useEffect(() => {
     setParticipantValues({});
@@ -228,7 +256,7 @@ export default function SplitExpensesPage() {
 
 
   const handleSaveSplit = async () => {
-    if (!selectedExpense || !user || !currentUserProfile || numberOfParticipants <= 0) {
+    if (!selectedExpense || !authUser || !currentUserProfile || numberOfParticipants <= 0) {
         toast({
             variant: "destructive",
             title: "Cannot Save Split",
@@ -270,16 +298,17 @@ export default function SplitExpensesPage() {
         email: p.email,
         amountOwed: amountOwed, 
         percentage: percentage,
-        isSettled: p.uid === user.uid, 
+        isSettled: p.uid === authUser.uid, 
       });
     });
 
     const splitData = {
         originalExpenseId: selectedExpense.id!,
         originalExpenseDescription: selectedExpense.description,
+        currency: selectedExpense.currency,
         splitMethod: splitMethod,
         totalAmount: selectedExpense.amount,
-        paidBy: user.uid,
+        paidBy: authUser.uid,
         participants: participants,
         notes: notes || `Split of expense: ${selectedExpense.description}`,
     };
@@ -291,7 +320,7 @@ export default function SplitExpensesPage() {
           description: `Expense "${selectedExpense.description}" has been successfully split.`,
         });
         handleClearSelection();
-        fetchAllData(); 
+        if (authUser) fetchAllData(); 
     } catch (error: any) {
         console.error("Error saving split expense:", error);
         toast({
@@ -310,7 +339,7 @@ export default function SplitExpensesPage() {
     try {
         await updateSplitParticipantSettlement(splitId, participantUserId, true);
         toast({ title: "Settlement Updated", description: "Participant marked as settled."});
-        fetchAllData(); 
+        if (authUser) fetchAllData(); 
     } catch (error: any) {
         console.error("Error settling participant:", error);
         toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update settlement status."});
@@ -325,7 +354,7 @@ export default function SplitExpensesPage() {
     try {
         await deleteSplitExpense(splitId);
         toast({ title: "Split Deleted", description: "The split expense record has been deleted." });
-        fetchAllData();
+        if (authUser) fetchAllData();
     } catch (error: any) {
         console.error("Error deleting split:", error);
         toast({ variant: "destructive", title: "Delete Failed", description: error.message || "Could not delete the split record." });
@@ -355,7 +384,14 @@ export default function SplitExpensesPage() {
   };
 
 
-  const isLoading = isLoadingExpenses || isLoadingFriends;
+  if (isLoadingPage) {
+     return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg text-foreground">Loading Split Expenses...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -575,7 +611,7 @@ export default function SplitExpensesPage() {
                 <Button variant="outline" onClick={handleClearSelection} disabled={isSavingSplit}>Cancel / Choose Other</Button>
                 <Button 
                     onClick={handleSaveSplit} 
-                    disabled={isLoading || !selectedExpense || isSavingSplit || numberOfParticipants === 0 || (numberOfParticipants === 1 && activeParticipants[0]?.uid === currentUserProfile?.uid && splitMethod !== 'equally' && friends.length > 0)}
+                    disabled={authLoading || !selectedExpense || isSavingSplit || numberOfParticipants === 0 || (numberOfParticipants === 1 && activeParticipants[0]?.uid === currentUserProfile?.uid && splitMethod !== 'equally' && friends.length > 0)}
                 >
                     {isSavingSplit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                     Save Split
@@ -620,7 +656,7 @@ export default function SplitExpensesPage() {
                                     <div>
                                         <CardTitle className="text-lg">{split.originalExpenseDescription}</CardTitle>
                                         <CardDescription>
-                                            Total: {formatCurrency(split.totalAmount)} ({split.splitMethod}) | Split on: {split.createdAt ? format(split.createdAt.toDate(), "MMM dd, yyyy, p") : 'N/A'}
+                                            Total: {formatCurrency(split.totalAmount)} ({split.currency}) | {split.splitMethod} | Split on: {split.createdAt ? format(new Date(split.createdAt), "MMM dd, yyyy, p") : 'N/A'}
                                         </CardDescription>
                                         <CardDescription>
                                             Paid by: <span className="font-medium text-foreground">{getPayerDisplayName(split)}</span>

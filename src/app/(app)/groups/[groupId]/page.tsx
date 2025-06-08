@@ -64,7 +64,7 @@ interface PairwiseDebt {
 
 
 export default function GroupDetailsPage() {
-  const { user } = useAuth();
+  const { authUser, userProfile: authUserProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   const params = useParams();
@@ -77,7 +77,7 @@ export default function GroupDetailsPage() {
   const [splitExpensesForGroup, setSplitExpensesForGroup] = useState<SplitExpense[]>([]);
   const [activityLog, setActivityLog] = useState<GroupActivityLogEntry[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingPage, setIsLoadingPage] = useState(true); // Overall page loader
   const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [isLoadingSplits, setIsLoadingSplits] = useState(true);
   const [isLoadingActivityLog, setIsLoadingActivityLog] = useState(true);
@@ -103,10 +103,22 @@ export default function GroupDetailsPage() {
   };
 
   const fetchGroupData = useCallback(async (refreshAll = false) => {
-    if (!user || !groupId) return;
+    if (!authUser || !groupId) {
+        setGroup(null);
+        setCurrentUserProfile(null);
+        setFriends([]);
+        setGroupExpenses([]);
+        setSplitExpensesForGroup([]);
+        setActivityLog([]);
+        setIsLoadingExpenses(false);
+        setIsLoadingSplits(false);
+        setIsLoadingActivityLog(false);
+        setIsLoadingPage(false);
+        return;
+    }
 
     if (refreshAll) {
-        setIsLoading(true);
+        setIsLoadingPage(true);
     }
     setIsLoadingExpenses(true);
     setIsLoadingSplits(true);
@@ -122,8 +134,8 @@ export default function GroupDetailsPage() {
       let profilePromise = Promise.resolve(currentUserProfile);
 
       if (refreshAll || friends.length === 0 || !currentUserProfile) {
-        friendsPromise = getFriends(user.uid);
-        profilePromise = getUserProfile(user.uid);
+        friendsPromise = getFriends(authUser.uid);
+        profilePromise = authUserProfile || getUserProfile(authUser.uid); // Use profile from auth context if available
       }
 
       const [groupData, fetchedFriends, fetchedProfile, expensesForGroup, groupSplits, fetchedLog] = await Promise.all([
@@ -133,11 +145,13 @@ export default function GroupDetailsPage() {
       if (!groupData) {
         toast({ variant: "destructive", title: "Error", description: "Group not found." });
         router.push("/groups");
+        setIsLoadingPage(false);
         return;
       }
-      if (!groupData.memberIds.includes(user.uid)) {
+      if (!groupData.memberIds.includes(authUser.uid)) {
          toast({ variant: "destructive", title: "Access Denied", description: "You are not a member of this group." });
          router.push("/groups");
+         setIsLoadingPage(false);
          return;
       }
       
@@ -145,8 +159,9 @@ export default function GroupDetailsPage() {
       if (refreshAll || groupNameForm.getValues("name") !== groupData.name) {
         groupNameForm.setValue("name", groupData.name);
       }
-      setFriends(fetchedFriends || friends);
-      setCurrentUserProfile(fetchedProfile || currentUserProfile);
+      setFriends(fetchedFriends || friends); // Maintain existing if not refreshing all
+      setCurrentUserProfile(fetchedProfile || currentUserProfile); // Maintain existing if not refreshing all
+
       setGroupExpenses(expensesForGroup);
       setSplitExpensesForGroup(groupSplits);
       setActivityLog(fetchedLog);
@@ -154,18 +169,37 @@ export default function GroupDetailsPage() {
     } catch (error) {
       console.error("Failed to fetch group details:", error);
       toast({ variant: "destructive", title: "Error Loading Group", description: "Could not load group details, expenses, or activity. Please try again." });
+      setGroup(null); // Clear data on error
     } finally {
-      if (refreshAll) setIsLoading(false);
+      if (refreshAll) setIsLoadingPage(false);
       setIsLoadingExpenses(false);
       setIsLoadingSplits(false);
       setIsLoadingActivityLog(false);
     }
-  }, [user, groupId, toast, router, groupNameForm, friends, currentUserProfile]);
+  }, [authUser, groupId, toast, router, groupNameForm, friends, currentUserProfile, authUserProfile]);
 
 
   useEffect(() => {
-    fetchGroupData(true); 
-  }, []); 
+    if (authLoading) {
+      setIsLoadingPage(true);
+      return;
+    }
+    if (authUser) {
+      setIsLoadingPage(true); // Page will fetch its data
+      fetchGroupData(true); // Initial full fetch
+    } else {
+      setGroup(null);
+      setCurrentUserProfile(null);
+      setFriends([]);
+      setGroupExpenses([]);
+      setSplitExpensesForGroup([]);
+      setActivityLog([]);
+      setIsLoadingPage(false);
+      setIsLoadingExpenses(false);
+      setIsLoadingSplits(false);
+      setIsLoadingActivityLog(false);
+    }
+  }, [authLoading, authUser, groupId, fetchGroupData]); // groupId ensures re-fetch if navigating between group pages
 
 const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
     if (!group || isLoadingExpenses || isLoadingSplits || !currentUserProfile) {
@@ -294,7 +328,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
   };
 
   const handleAddMembers = async () => {
-    if (!group || !user || !currentUserProfile) return;
+    if (!group || !authUser || !currentUserProfile) return;
     const newMemberFriendProfiles = Object.entries(selectedFriendsToAdd)
       .filter(([, isSelected]) => isSelected)
       .map(([friendId]) => friends.find(f => f.uid === friendId))
@@ -318,7 +352,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
       toast({ title: "Members Added", description: "New members have been added to the group." });
       setSelectedFriendsToAdd({});
       setIsAddMembersDialogOpen(false);
-      fetchGroupData(true); 
+      if(authUser) fetchGroupData(true); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Add Members", description: error.message || "Could not add selected members to the group." });
     } finally {
@@ -327,16 +361,16 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
   };
 
   const handleRemoveMember = async (memberIdToRemove: string) => {
-    if (!group || !user || !currentUserProfile) return;
+    if (!group || !authUser || !currentUserProfile) return;
     if (memberIdToRemove === group.createdBy && group.memberIds.length > 1) {
         toast({variant: "destructive", title: "Action Not Allowed", description: "The group creator cannot be removed if other members exist. Transfer ownership or remove other members first."});
         return;
     }
-     if (memberIdToRemove === user.uid && group.memberIds.length === 1 && group.createdBy === user.uid) {
+     if (memberIdToRemove === authUser.uid && group.memberIds.length === 1 && group.createdBy === authUser.uid) {
         // Allow if it's the last member and they are the creator (will delete group)
-    } else if (memberIdToRemove === user.uid) {
+    } else if (memberIdToRemove === authUser.uid) {
         // Allow if it's the current user leaving
-    } else if (user.uid !== group.createdBy) {
+    } else if (authUser.uid !== group.createdBy) {
         toast({variant: "destructive", title: "Action Not Allowed", description: "Only the group creator can remove other members."});
         return;
     }
@@ -347,10 +381,10 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
       await removeMemberFromGroup(groupId, currentUserProfile, memberIdToRemove, memberToRemoveProfile?.displayName || memberToRemoveProfile?.email || 'Unknown User');
       toast({ title: "Member Action Processed", description: "The member has been removed or you have left the group." });
       
-      if (memberIdToRemove === user.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
+      if (memberIdToRemove === authUser.uid || (group.memberIds.length === 1 && group.memberIds[0] === memberIdToRemove)) {
         router.push("/groups"); 
       } else {
-        fetchGroupData(true); 
+        if(authUser) fetchGroupData(true); 
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Remove Member", description: error.message || "Could not process member removal or leave the group." });
@@ -365,7 +399,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
   };
 
   const handleEditGroupName = async (values: GroupNameFormData) => {
-    if (!group || !user || user.uid !== group.createdBy || !currentUserProfile) {
+    if (!group || !authUser || authUser.uid !== group.createdBy || !currentUserProfile) {
       toast({ variant: "destructive", title: "Unauthorized", description: "Only the group creator can edit the group name." });
       return;
     }
@@ -375,7 +409,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
       toast({ title: "Group Name Updated", description: `Group name changed to "${values.name}".` });
       setGroup(prev => prev ? { ...prev, name: values.name } : null); 
       setIsEditGroupNameDialogOpen(false);
-      fetchGroupData(false); 
+      if(authUser) fetchGroupData(false); 
     } catch (error: any) {
       console.error("Error updating group name:", error);
       toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update the group name." });
@@ -394,7 +428,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
     try {
         await updateSplitParticipantSettlement(groupId, currentUserProfile, splitId, participantUserId, true, participant.displayName || participant.email || 'A participant', split.originalExpenseDescription);
         toast({ title: "Settlement Updated", description: "Participant marked as settled."});
-        fetchGroupData(false); 
+        if(authUser) fetchGroupData(false); 
     } catch (error: any) {
         console.error("Error settling participant:", error);
         toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update the settlement status for the participant."});
@@ -422,7 +456,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
     return group?.memberDetails.find(m => m.uid === group.createdBy);
   }, [group]);
 
-  if (isLoading) {
+  if (isLoadingPage) {
     return (
       <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -443,7 +477,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
     );
   }
   
-  const isCurrentUserCreator = user?.uid === group.createdBy;
+  const isCurrentUserCreator = authUser?.uid === group.createdBy;
   
   const actionableSplitsForCurrentUser = useMemo(() => {
     if (!currentUserProfile || !splitExpensesForGroup) return [];
@@ -587,12 +621,12 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
                         <div>
                         <p className="font-semibold text-sm">{member.displayName || member.email}
                             {member.uid === group.createdBy && <span className="ml-2 text-xs text-primary font-medium">(Creator)</span>}
-                            {member.uid === user?.uid && <span className="ml-2 text-xs text-accent font-medium">(You)</span>}
+                            {member.uid === authUser?.uid && <span className="ml-2 text-xs text-accent font-medium">(You)</span>}
                         </p>
                         <p className="text-xs text-muted-foreground">{member.email}</p>
                         </div>
                     </div>
-                    {(isCurrentUserCreator && member.uid !== user?.uid) || (member.uid === user?.uid && group.memberIds.length > 1) ? (
+                    {(isCurrentUserCreator && member.uid !== authUser?.uid) || (member.uid === authUser?.uid && group.memberIds.length > 1) ? (
                         <AlertDialog>
                         <AlertDialogTrigger asChild>
                             <Button 
@@ -600,29 +634,29 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
                                 size="sm" 
                                 className="text-destructive hover:text-destructive/80"
                                 disabled={isProcessingMember === member.uid}
-                                aria-label={member.uid === user?.uid ? "Leave group" : "Remove member"}
+                                aria-label={member.uid === authUser?.uid ? "Leave group" : "Remove member"}
                             >
                             {isProcessingMember === member.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            <span className="ml-1.5 hidden sm:inline">{member.uid === user?.uid ? "Leave" : "Remove"}</span>
+                            <span className="ml-1.5 hidden sm:inline">{member.uid === authUser?.uid ? "Leave" : "Remove"}</span>
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                             <AlertDialogHeader>
                             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                             <AlertDialogDescription>
-                                {member.uid === user?.uid ? "You are about to leave this group." : `This will remove ${member.displayName || member.email} from the group.`}
+                                {member.uid === authUser?.uid ? "You are about to leave this group." : `This will remove ${member.displayName || member.email} from the group.`}
                                 This action cannot be undone.
                             </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => handleRemoveMember(member.uid)} className="bg-destructive hover:bg-destructive/90">
-                                {isProcessingMember === member.uid ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (member.uid === user?.uid ? "Leave Group" : "Remove Member")}
+                                {isProcessingMember === member.uid ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (member.uid === authUser?.uid ? "Leave Group" : "Remove Member")}
                             </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>
                         </AlertDialog>
-                    ): (member.uid === user?.uid && group.memberIds.length === 1 && isCurrentUserCreator && (
+                    ): (member.uid === authUser?.uid && group.memberIds.length === 1 && isCurrentUserCreator && (
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
                                 <Button 
@@ -760,7 +794,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
                                                     <AvatarImage src="https://placehold.co/40x40.png" alt={memberBalance.displayName} data-ai-hint="person avatar"/>
                                                     <AvatarFallback>{getInitials(memberBalance.displayName, memberBalance.email)}</AvatarFallback>
                                                 </Avatar>
-                                                <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === user?.uid ? "(You)" : ""}</span>
+                                                <span className="font-medium text-sm">{memberBalance.displayName} {memberBalance.uid === authUser?.uid ? "(You)" : ""}</span>
                                             </div>
                                         </CardHeader>
                                         <CardContent className="p-3 pt-1">
@@ -988,7 +1022,7 @@ const groupMemberBalances: GroupMemberBalance[] = useMemo(() => {
           isOpen={isSplitExpenseDialogOpen}
           onOpenChange={(isOpen) => {
             setIsSplitExpenseDialogOpen(isOpen);
-            if (!isOpen) fetchGroupData(false); 
+            if (!isOpen && authUser) fetchGroupData(false); 
           }}
           expenseToSplit={expenseToSplit}
           group={group}
