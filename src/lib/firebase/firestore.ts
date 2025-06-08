@@ -1,4 +1,3 @@
-
 'use server';
 import { db } from './config';
 import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, limit, doc, getDoc, updateDoc, deleteDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
@@ -969,7 +968,8 @@ export async function createSplitExpense(splitData: CreateSplitExpenseData): Pro
       paidBy: splitData.paidBy,
       participants: validatedParticipants,
       involvedUserIds,
-      groupId: splitData.groupId || undefined,
+      groupId: splitData.groupId || null,
+      groupName: splitData.groupName || null,
       notes: splitData.notes || '',
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
@@ -1447,3 +1447,4 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
+
