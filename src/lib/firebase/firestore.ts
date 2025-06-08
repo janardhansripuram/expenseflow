@@ -60,7 +60,7 @@ export async function addExpense(userId: string, expenseData: ExpenseFormData, a
   try {
     if (!userId) throw new Error("User ID is required to add an expense.");
     const tagsArray = expenseData.tags ? expenseData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '') : [];
-    
+
     const expenseDoc: any = {
       userId,
       description: expenseData.description,
@@ -140,8 +140,8 @@ function mapExpenseDocumentToExpenseObject(docSnap: any): Expense | null {
       userId: data.userId || 'Unknown User',
       isRecurring: data.isRecurring || false,
       recurrence: data.recurrence || 'none',
-      recurrenceEndDate: data.recurrenceEndDate && typeof data.recurrenceEndDate.toDate === 'function' 
-                         ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0] 
+      recurrenceEndDate: data.recurrenceEndDate && typeof data.recurrenceEndDate.toDate === 'function'
+                         ? (data.recurrenceEndDate as Timestamp).toDate().toISOString().split('T')[0]
                          : undefined,
       tags: Array.isArray(data.tags) ? data.tags : [],
     };
@@ -171,7 +171,7 @@ export async function getExpensesByUser(userId: string): Promise<Expense[]> {
 
     const expenses = querySnapshot.docs
       .map(mapExpenseDocumentToExpenseObject)
-      .filter(expense => expense !== null) as Expense[]; 
+      .filter(expense => expense !== null) as Expense[];
     return expenses;
   } catch (error) {
     console.error("[firestore.getExpensesByUser] Error getting documents: ", error);
@@ -342,9 +342,9 @@ function mapIncomeDocumentToIncomeObject(docSnap: any): Income | null {
       date: (data.date as Timestamp).toDate().toISOString().split('T')[0],
       notes: data.notes || '',
       createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-      updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
-                 ? (data.updatedAt as Timestamp).toDate().toISOString() 
-                 : (data.createdAt as Timestamp).toDate().toISOString(), 
+      updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function'
+                 ? (data.updatedAt as Timestamp).toDate().toISOString()
+                 : (data.createdAt as Timestamp).toDate().toISOString(),
     };
   } catch (error) {
      console.error(`[firestore.mapIncome] Error mapping income document ${docId}:`, error, docSnap.data());
@@ -423,7 +423,7 @@ export async function createUserProfile(userId: string, email: string, displayNa
       uid: userId,
       email: email.toLowerCase(),
       displayName: displayName || email.split('@')[0] || 'User',
-      defaultCurrency: 'USD', 
+      defaultCurrency: 'USD' as CurrencyCode,
       createdAt: Timestamp.now(),
     });
   } catch (error) {
@@ -442,7 +442,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        defaultCurrency: data.defaultCurrency || 'USD',
+        defaultCurrency: data.defaultCurrency || ('USD' as CurrencyCode),
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
@@ -463,7 +463,7 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
         uid: data.uid,
         email: data.email,
         displayName: data.displayName,
-        defaultCurrency: data.defaultCurrency || 'USD',
+        defaultCurrency: data.defaultCurrency || ('USD' as CurrencyCode),
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
       } as UserProfile;
     }
@@ -478,7 +478,7 @@ export async function updateUserProfile(userId: string, data: Partial<Pick<UserP
   try {
     const userRef = doc(db, USERS_COLLECTION, userId);
     const updateData: { [key: string]: any } = { updatedAt: Timestamp.now() };
-    
+
     const allowedUpdates: Partial<UserProfile> = {};
     if (data.displayName !== undefined) allowedUpdates.displayName = data.displayName;
     if (data.defaultCurrency !== undefined) allowedUpdates.defaultCurrency = data.defaultCurrency;
@@ -1008,7 +1008,7 @@ export async function getSplitExpensesForUser(userId: string): Promise<SplitExpe
         return {
             id: docSnap.id,
             ...data,
-            currency: data.currency || 'USD', 
+            currency: data.currency || 'USD',
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
             updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
@@ -1028,7 +1028,7 @@ export async function getSplitExpenseById(splitExpenseId: string): Promise<Split
       return {
         id: docSnap.id,
         ...data,
-        currency: data.currency || 'USD', 
+        currency: data.currency || 'USD',
         createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
         updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
       } as SplitExpense;
@@ -1054,7 +1054,7 @@ export async function getSplitExpensesByGroupId(groupId: string): Promise<SplitE
         return {
             id: docSnap.id,
             ...data,
-            currency: data.currency || 'USD', 
+            currency: data.currency || 'USD',
             createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
             updatedAt: (data.updatedAt as Timestamp).toDate().toISOString(),
         } as SplitExpense
@@ -1327,12 +1327,50 @@ function mapBudgetDocumentToBudgetObject(docSnap: any): Budget | null {
             console.error(`[firestore.mapBudget] Budget document ${docId} has no data.`);
             return null;
         }
-        if (!data.createdAt || typeof data.createdAt.toDate !== 'function') {
-            console.error(`[firestore.mapBudget] Budget document ${docId} has invalid or missing 'createdAt' field:`, data.createdAt);
-            return null;
+
+        let createdAtISO: string;
+        if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+            createdAtISO = (data.createdAt as Timestamp).toDate().toISOString();
+        } else {
+            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid or missing 'createdAt' field. Using current date as fallback. Data:`, data.createdAt);
+            createdAtISO = new Date().toISOString();
         }
-         if (data.updatedAt && typeof data.updatedAt.toDate !== 'function') {
-            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid 'updatedAt' field:`, data.updatedAt);
+
+        let updatedAtISO: string;
+        if (data.updatedAt && typeof data.updatedAt.toDate === 'function') {
+            updatedAtISO = (data.updatedAt as Timestamp).toDate().toISOString();
+        } else if (data.createdAt && typeof data.createdAt.toDate === 'function') { // Fallback to createdAt if updatedAt is invalid
+            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid or missing 'updatedAt' field. Using 'createdAt' as fallback. Data:`, data.updatedAt);
+            updatedAtISO = createdAtISO;
+        } else {
+            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid or missing 'updatedAt' and 'createdAt' fields. Using current date as fallback for updatedAt.`);
+            updatedAtISO = new Date().toISOString();
+        }
+
+        let startDateValid = data.startDate;
+        try {
+            if (data.startDate) {
+                parseISO(data.startDate); // Check if parseable, will throw if not
+            } else {
+                console.warn(`[firestore.mapBudget] Budget document ${docId} missing 'startDate'. Falling back to start of current month.`);
+                startDateValid = formatISO(startOfMonth(new Date()), { representation: 'date' });
+            }
+        } catch (e) {
+            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid 'startDate' field: ${data.startDate}. Falling back to start of current month.`);
+            startDateValid = formatISO(startOfMonth(new Date()), { representation: 'date' });
+        }
+
+        let endDateValid = data.endDate;
+        try {
+            if (data.endDate) {
+                parseISO(data.endDate); // Check if parseable
+            } else {
+                console.warn(`[firestore.mapBudget] Budget document ${docId} missing 'endDate'. Falling back to end of current month.`);
+                endDateValid = formatISO(endOfMonth(new Date()), { representation: 'date' });
+            }
+        } catch (e) {
+            console.warn(`[firestore.mapBudget] Budget document ${docId} has invalid 'endDate' field: ${data.endDate}. Falling back to end of current month.`);
+            endDateValid = formatISO(endOfMonth(new Date()), { representation: 'date' });
         }
 
         return {
@@ -1343,12 +1381,10 @@ function mapBudgetDocumentToBudgetObject(docSnap: any): Budget | null {
             amount: typeof data.amount === 'number' ? data.amount : 0,
             currency: data.currency || 'USD',
             period: data.period || 'monthly',
-            startDate: data.startDate || formatISO(startOfMonth(new Date()), { representation: 'date' }),
-            endDate: data.endDate || formatISO(endOfMonth(new Date()), { representation: 'date' }),
-            createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-            updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
-                        ? (data.updatedAt as Timestamp).toDate().toISOString() 
-                        : (data.createdAt as Timestamp).toDate().toISOString(),
+            startDate: startDateValid,
+            endDate: endDateValid,
+            createdAt: createdAtISO,
+            updatedAt: updatedAtISO,
         };
     } catch (error) {
         console.error(`[firestore.mapBudget] Error mapping budget document ${docId}:`, error, docSnap.data());
@@ -1383,7 +1419,7 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
     if (budgetData.category !== undefined) updatePayload.category = budgetData.category;
     if (budgetData.amount !== undefined) updatePayload.amount = parseFloat(budgetData.amount);
     if (budgetData.currency !== undefined) updatePayload.currency = budgetData.currency;
-    
+
     if (budgetData.period !== undefined) {
         updatePayload.period = budgetData.period;
         const now = new Date();
@@ -1393,7 +1429,7 @@ export async function updateBudget(budgetId: string, budgetData: Partial<BudgetF
         }
     }
 
-    if (Object.keys(updatePayload).length > 1) { 
+    if (Object.keys(updatePayload).length > 1) {
         await updateDoc(budgetRef, updatePayload);
     }
   } catch (error) {
@@ -1411,4 +1447,3 @@ export async function deleteBudget(budgetId: string): Promise<void> {
     throw error;
   }
 }
-

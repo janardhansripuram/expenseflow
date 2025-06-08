@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, PlusCircle, Target, Edit, Trash2, Landmark, AlertTriangle, Save } from "lucide-react"; 
+import { Loader2, PlusCircle, Target, Edit, Trash2, Landmark, AlertTriangle, Save } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { addBudget, getBudgetsByUser, updateBudget, deleteBudget, getExpensesByUser } from "@/lib/firebase/firestore";
@@ -20,7 +20,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useForm } from "react-hook-form";
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
-import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert"; 
+import { Alert, AlertDescription as UIDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 
 const budgetSchema = z.object({
@@ -40,11 +40,11 @@ const budgetSchema = z.object({
 export default function BudgetsPage() {
   const { authUser, userProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(true); // Page-specific loading
+  const [isLoading, setIsLoading] = useState(true);
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]); 
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [spentAmounts, setSpentAmounts] = useState<Record<string, { spent: number; hasOtherCurrencyExpenses: boolean }>>({});
-  
+
   const [isBudgetDialogOpen, setIsBudgetDialogOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,19 +56,19 @@ export default function BudgetsPage() {
       name: "",
       category: "",
       amount: "",
-      currency: "USD", // Initial default, will be updated by useEffect
+      currency: "USD",
       period: "monthly",
     },
   });
 
   useEffect(() => {
-    if (userProfile && !authLoading && !editingBudget) { 
+    if (userProfile && !authLoading && !editingBudget) {
       form.reset({
         name: "",
         category: "",
         amount: "",
         currency: userProfile.defaultCurrency || "USD",
-        period: "monthly", 
+        period: "monthly",
       });
     } else if (editingBudget && userProfile) {
          form.reset({
@@ -89,20 +89,37 @@ export default function BudgetsPage() {
       setIsLoading(false);
       return;
     }
-    // Page-specific loading is managed by the main useEffect
+    setIsLoading(true); // Set loading true at the start of actual data fetching
+
     try {
-      const [userBudgets, userExpenses] = await Promise.all([
-        getBudgetsByUser(authUser.uid),
-        getExpensesByUser(authUser.uid)
-      ]);
-      setBudgets(userBudgets);
-      setExpenses(userExpenses);
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Could not load budget data." });
+      let userBudgets: Budget[] = [];
+      let userExpensesData: Expense[] = [];
+
+      try {
+        userBudgets = await getBudgetsByUser(authUser.uid);
+        setBudgets(userBudgets);
+      } catch (error) {
+        console.error("Error fetching budgets:", error);
+        toast({ variant: "destructive", title: "Budget Data Error", description: "Could not load your budget records." });
+        setBudgets([]);
+      }
+
+      try {
+        userExpensesData = await getExpensesByUser(authUser.uid);
+        setExpenses(userExpensesData);
+      } catch (error) {
+        console.error("Error fetching expenses for budget calculations:", error);
+        toast({ variant: "destructive", title: "Expense Data Error (for Budgets)", description: "Could not load expenses needed for budget calculations." });
+        setExpenses([]);
+      }
+
+    } catch (error) { // General catch for unexpected errors in the overall process
+      console.error("General error in fetchBudgetData:", error);
+      toast({ variant: "destructive", title: "Loading Error", description: "An unexpected error occurred while loading budget page data." });
       setBudgets([]);
       setExpenses([]);
     } finally {
-      setIsLoading(false); // Page-specific loading stops
+      setIsLoading(false);
     }
   }, [authUser, toast]);
 
@@ -112,7 +129,7 @@ export default function BudgetsPage() {
       return;
     }
     if (authUser) {
-      setIsLoading(true); // Page will fetch its data
+      // isLoading is set to true inside fetchBudgetData when it actually starts
       fetchBudgetData();
     } else {
       setBudgets([]);
@@ -120,14 +137,14 @@ export default function BudgetsPage() {
       setIsLoading(false);
     }
   }, [authLoading, authUser, fetchBudgetData]);
-  
+
   useEffect(() => {
     if (budgets.length > 0 && expenses.length > 0) {
       const newSpentAmounts: Record<string, { spent: number; hasOtherCurrencyExpenses: boolean }> = {};
       budgets.forEach(budget => {
         const budgetStartDate = parseISO(budget.startDate);
         const budgetEndDate = parseISO(budget.endDate);
-        
+
         let totalSpentInBudgetCurrency = 0;
         let hasOtherCurrencyExpensesInCategory = false;
 
@@ -181,7 +198,7 @@ export default function BudgetsPage() {
         await addBudget(authUser.uid, values);
         toast({ title: "Budget Created", description: "Your new budget has been set." });
       }
-      if (authUser) fetchBudgetData(); // Refresh data
+      if (authUser) fetchBudgetData();
       setIsBudgetDialogOpen(false);
       setEditingBudget(null);
     } catch (error) {
@@ -197,7 +214,7 @@ export default function BudgetsPage() {
     try {
       await deleteBudget(budgetId);
       toast({ title: "Budget Deleted", description: "The budget has been successfully deleted." });
-      if (authUser) fetchBudgetData(); // Refresh data
+      if (authUser) fetchBudgetData();
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Could not delete budget." });
     } finally {
@@ -220,7 +237,7 @@ export default function BudgetsPage() {
   };
 
 
-  if (isLoading) { // Page-level loading (covers auth and initial data fetch)
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
